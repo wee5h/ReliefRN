@@ -1,0 +1,8 @@
+.azure/
+.env
+.env.*
+!.env.example
+fema-mcp
+*.test
+coverage.out
+.DS_Store
