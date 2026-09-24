@@ -19,3 +19,6 @@
 .agent-trail{margin-top:10px;display:flex;flex-wrap:wrap;align-items:center;gap:5px;font-size:.7rem}
 .agent-trail span{color:inherit;opacity:.7;font-weight:600;margin-right:2px}
 .agent-trail i{font-style:normal;font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;padding:2px 7px;border-radius:999px;border:1px solid currentColor;opacity:.78;white-space:nowrap}
+/* FEMA Disaster Recovery Centers. */
+.category-icon.drc{background:#e8f0fa;color:#1f5fae}
+.resource-pin.drc{font-family:Georgia,serif}

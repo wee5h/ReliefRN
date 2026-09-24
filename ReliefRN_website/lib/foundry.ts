@@ -1,6 +1,6 @@
-// Harbor ⇄ ReliefRN live agents.
+// ReliefRN website ⇄ ReliefRN live agents.
 //
-// Harbor runs as a Worker, which cannot use `az login` or a browser sign-in,
+// The website runs as a Worker, which cannot use `az login` or a browser sign-in,
 // so it talks to the local agent bridge (agent-bridge/bridge.py). The bridge
 // holds the Azure credential and calls the three Foundry agents by name:
 // Assistance-agent, Safety-EscalationAgent and WriteUp-agent.

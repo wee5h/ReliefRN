@@ -1,6 +1,6 @@
-"""ReliefRN agent bridge — connects Harbor to the three live Foundry agents.
+"""ReliefRN agent bridge — connects the ReliefRN website to the three live Foundry agents.
 
-Harbor runs as a Cloudflare Worker, which cannot use `az login` or a browser
+The ReliefRN website runs as a Cloudflare Worker, which cannot use `az login` or a browser
 sign-in. This small local server holds the Azure credential instead and
 calls the agents exactly the way ready-route-web and reliefrn_demo.py do:
 
@@ -78,10 +78,10 @@ LANGUAGES = {"en": "English", "es": "Spanish", "hi": "Hindi"}
 
 # --- Prompts ---------------------------------------------------------------
 # Kept close to the team's working prompts in ready-route-web/server.py so
-# Harbor behaves like the agents you already tested.
+# the ReliefRN website behaves like the agents you already tested.
 
 ASSISTANT_PROMPT = """Follow your instructions.
-Application-selected channel: web (Harbor disaster assistance navigator)
+Application-selected channel: web (ReliefRN disaster assistance navigator)
 Reply in {language}. Keep replies short and in plain language.
 Location context (city/state only): {area}
 If there is danger, start with "Call 911 now."
@@ -140,8 +140,8 @@ BARE_URL = re.compile(r"https?://[^\s<>\"')\]]+")
 
 
 def to_plain_text(text: str) -> tuple[str, list[dict]]:
-    """Harbor shows replies as plain text. Turn Markdown into readable text and
-    collect every link as a source so it appears in Harbor's Sources list."""
+    """The ReliefRN website shows replies as plain text. Turn Markdown into readable text and
+    collect every link as a source so it appears in the website's Sources list."""
     sources: dict[str, dict] = {}
 
     def keep(url: str, title: str | None = None) -> None:
@@ -203,7 +203,7 @@ class Agents:
             interactive_browser_tenant_id=TENANT_ID,
         )
         # Re-checks after a failed sign-in must never open a browser window:
-        # Harbor asks for /health every few seconds.
+        # the ReliefRN website asks for /health every few seconds.
         self.probe = DefaultAzureCredential(
             exclude_interactive_browser_credential=True,
             exclude_managed_identity_credential=True,
@@ -270,7 +270,7 @@ class Agents:
                 return response.output_text, citations_from(response)
             raise RuntimeError(f"{agent}: too many consecutive tool approvals")
         finally:
-            # Conversations are transient, matching Harbor's privacy promise.
+            # Conversations are transient, matching the website's privacy promise.
             try:
                 client.conversations.delete(conversation)
             except Exception:  # noqa: BLE001 - best effort
@@ -364,7 +364,7 @@ def run_chat(job: dict, body: dict) -> dict:
 def run_summary(job: dict, body: dict) -> dict:
     used: list[str] = []
     history = [m for m in body["messages"] if m["role"] in ("user", "assistant")]
-    # Harbor appends a "hand-off" user turn to trigger the summary; drop it.
+    # the ReliefRN website appends a "hand-off" user turn to trigger the summary; drop it.
     if len(history) > 1 and history[-1]["role"] == "user" and len(history[-1]["content"]) < 80:
         history = history[:-1]
     text, _ = agents.ask(WRITEUP_AGENT, [
@@ -436,7 +436,7 @@ def valid_body(body) -> str | None:
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "ReliefRNBridge/1.0"
-    # HTTP/1.1 keep-alive matters: Harbor's Worker reuses the connection from
+    # HTTP/1.1 keep-alive matters: the website's Worker reuses the connection from
     # the /health check for the POST that follows. An HTTP/1.0 server closes
     # it after every reply, and the POST then fails with "Network connection
     # lost" (GETs are silently retried; POSTs are not).
@@ -467,7 +467,7 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         if origin:
             log(f"  refused {self.command} {self.path}: Origin {origin!r}")
-            self.send(403, {"error": "browser requests are not accepted; call via Harbor's server"})
+            self.send(403, {"error": "browser requests are not accepted; call via the website's server"})
             return False
         host = (self.headers.get("Host") or "").lower()
         if host not in (f"127.0.0.1:{PORT}", f"localhost:{PORT}"):
@@ -483,7 +483,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def read_json(self):
         limit = 200_000
-        # Harbor's Worker fetch streams the body chunked, with no Content-Length.
+        # the website's Worker fetch streams the body chunked, with no Content-Length.
         if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
             data = b""
             while True:
@@ -615,7 +615,7 @@ def main() -> None:
         err = agents.check_auth(force=True)
         if err:
             log("SIGN-IN FAILED: " + err)
-            log("Harbor will stay in guided mode until this works. See RUN-LOCALLY.md, 'Sign-in'.")
+            log("the ReliefRN website will stay in guided mode until this works. See RUN-LOCALLY.md, 'Sign-in'.")
         else:
             log("Signed in. Live agents ready.")
 

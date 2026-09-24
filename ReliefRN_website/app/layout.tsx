@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Harbor | Disaster Assistance Navigator",
+  title: "ReliefRN | Disaster Assistance Navigator",
   description: "Find nearby disaster support, official information, and a clear next step. Accessible help, in your language.",
   icons: {
     icon: "/favicon.svg",

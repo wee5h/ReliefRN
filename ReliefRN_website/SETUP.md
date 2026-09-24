@@ -1,4 +1,4 @@
-# Harbor — connection and operation guide
+# ReliefRN website — connection and operation guide
 
 The website works in a clearly labelled directory mode without credentials. With the agent bridge running and signed in, its chat is answered by the ReliefRN project's three live Foundry agents. It does not impersonate an agency, or promise that a human will call until the appropriate service confirms a request.
 
@@ -8,13 +8,13 @@ The website works in a clearly labelled directory mode without credentials. With
 
 The ReliefRN project's agents are addressed **by name** through Foundry's Responses API: `Assistance-agent`, `Safety-EscalationAgent` and `WriteUp-agent`, in `https://disaster-ai-agent.services.ai.azure.com/api/projects/ReliefRN`. That is the same API `ready-route-web` and `test-python-site` use. The earlier adapter here targeted classic `asst_…` Threads/Runs agents and could not reach them, so it has been replaced.
 
-Harbor runs as a Worker, which cannot use `az login` or an interactive sign-in. So `lib/foundry.ts` talks to a small local Python service, `agent-bridge/bridge.py`, which holds the Azure credential and calls the agents with the official `azure-ai-projects` SDK. The bridge orchestrates the three agents:
+The ReliefRN website runs as a Worker, which cannot use `az login` or an interactive sign-in. So `lib/foundry.ts` talks to a small local Python service, `agent-bridge/bridge.py`, which holds the Azure credential and calls the agents with the official `azure-ai-projects` SDK. The bridge orchestrates the three agents:
 
-1. **Safety-EscalationAgent** reviews the message first when it concerns scams, payments, danger, legal, medical or other high-impact issues (keyword screen plus Harbor's `highImpact` rule). Its `ESCALATE: YES/NO` verdict sets Harbor's "talk to a person" prompt, and its assessment is passed to the next agent as evidence.
+1. **Safety-EscalationAgent** reviews the message first when it concerns scams, payments, danger, legal, medical or other high-impact issues (keyword screen plus the website's `highImpact` rule). Its `ESCALATE: YES/NO` verdict sets the website's "talk to a person" prompt, and its assessment is passed to the next agent as evidence.
 2. **Assistance-agent** answers, using its configured tools (the FEMA MCP server).
 3. **WriteUp-agent** drafts the hand-off summary when the person asks for a human.
 
-The reply's links become Harbor's source list. The agents and MCP tools that actually ran are returned and shown under each reply as **Handled by**. Test a normal assistance question, a multilingual question, an ambiguous eligibility question, an urgent message, and a requested summary. The local emergency rule immediately shows 911 guidance and does not wait for AI. Do not use real personal information for these tests.
+The reply's links become the website's source list. The agents and MCP tools that actually ran are returned and shown under each reply as **Handled by**. Test a normal assistance question, a multilingual question, an ambiguous eligibility question, an urgent message, and a requested summary. The local emergency rule immediately shows 911 guidance and does not wait for AI. Do not use real personal information for these tests.
 
 Optional server settings: `AGENT_BRIDGE_URL` (default `http://127.0.0.1:8765`) and `AGENT_BRIDGE_TOKEN` (a shared secret, if the bridge runs somewhere other than this machine). Agent names, the project endpoint and credentials are configured in `agent-bridge/.env`; see `agent-bridge/.env.example`.
 
@@ -32,19 +32,19 @@ To activate callbacks, configure a **support service you control** in `HANDOFF_W
 
 ```json
 {
-  "reference": "HBR-…",
+  "reference": "RRN-…",
   "summary": "User-reviewed text",
   "phone": "+1…",
   "language": "en",
   "consent": true,
   "consentedAt": "ISO timestamp",
-  "source": "Harbor"
+  "source": "ReliefRN"
 }
 ```
 
-The request includes `Authorization: Bearer …` and `Idempotency-Key: HBR-…`. Deduplicate by that key. Return a 2xx JSON response with **both** `{"accepted":true,"caseId":"YOUR-REAL-CASE-ID"}` only after the queue or case system has actually accepted it. Non-2xx, timeouts, invalid JSON, or missing receipt fields are shown as unconfirmed; the user is directed to call. Do not return success if an email, queue, or SMS operation failed. Implement retention, deletion, staff access, abuse controls, and callback scheduling in that support system. No phone numbers or handoff summaries are stored by Harbor.
+The request includes `Authorization: Bearer …` and `Idempotency-Key: RRN-…`. Deduplicate by that key. Return a 2xx JSON response with **both** `{"accepted":true,"caseId":"YOUR-REAL-CASE-ID"}` only after the queue or case system has actually accepted it. Non-2xx, timeouts, invalid JSON, or missing receipt fields are shown as unconfirmed; the user is directed to call. Do not return success if an email, queue, or SMS operation failed. Implement retention, deletion, staff access, abuse controls, and callback scheduling in that support system. No phone numbers or handoff summaries are stored by the ReliefRN website.
 
-Phone and SMS are not provisioned by a website. To route those channels through the agents, connect your existing Azure Communication Services, Twilio, or contact-center number to the same Foundry workflow, then set `SUPPORT_VOICE_NUMBER` and/or `SUPPORT_SMS_NUMBER`. Until supplied, Harbor offers 211/FEMA calls and the local 211 text-service directory. It never claims a text was sent. Browser microphone input is separate and depends on browser support; speech transcription may be processed by the browser's speech provider.
+Phone and SMS are not provisioned by a website. To route those channels through the agents, connect your existing Azure Communication Services, Twilio, or contact-center number to the same Foundry workflow, then set `SUPPORT_VOICE_NUMBER` and/or `SUPPORT_SMS_NUMBER`. Until supplied, the ReliefRN website offers 211/FEMA calls and the local 211 text-service directory. It never claims a text was sent. Browser microphone input is separate and depends on browser support; speech transcription may be processed by the browser's speech provider.
 
 There is no general public FEMA endpoint configured to accept these summaries as cases. Do not send directly to FEMA without an authorized receiving integration. FEMA application links open the official application site for the user to complete there.
 
@@ -52,7 +52,16 @@ There is no general public FEMA endpoint configured to accept these summaries as
 
 - **Norfolk initial directory:** two city-designated shelters (Southside STEM Academy and Norview High School), two fire stations, Sentara Norfolk General Hospital, Ghent Veterinary Hospital, and the Norfolk deputy coordinator published in VDEM's Local Emergency Managers Directory. Addresses were geocoded through Esri. Source review: September 23, 2026. The directory is a snapshot; inclusion does not confirm opening or admission.
 - **Evacuation polygons:** actual VDEM coastal Virginia zone data used by the official Know Your Zone web map. The Norfolk geometry snapshot identifies the 2020 update used by the current official map. Other coastal Virginia views query the same service. These are planning zones, not live evacuation orders. Other states link to their official agency; no nationwide polygon coverage is claimed.
-- **Resource lookup:** FEMA National Shelter System open-shelter layer plus OpenStreetMap public facility listings. The nearest available listings are ranked with Haversine straight-line distances (two shelters, two responder stations, one hospital, one veterinary hospital). The search is bounded: approximately 22 miles for OSM facilities, 50 miles for FEMA shelters. It is not a complete inventory, live responder tracking, admission confirmation, or a safe travel route. OSM is labelled community data, not government information.
+- **Resource lookup (nationwide):**
+  - **USGS National Map structures** provide hospitals, ambulance stations, fire/EMS stations and police, within 25 miles.
+  - **FEMA Disaster Recovery Centers** and the **FEMA National Shelter System open-shelter layer** each cover 50 miles. Both only have entries during active disasters, so an empty list is normal elsewhere.
+  - **OpenStreetMap** provides veterinary clinics within about 15 miles. The browser fetches these directly: from the local Worker, public Overpass servers hang. Two Overpass mirrors are tried in turn, and both are often busy, so vets can be missing on a bad day.
+  - The nearest listings are ranked by straight-line (Haversine) distance: two shelters, two Recovery Centers, two responder stations, one hospital and one veterinary hospital.
+  - This is not a complete inventory, live responder tracking, admission confirmation, or a safe travel route. OSM is labelled community data, not government information.
+- **Location from the chat:** when a message names a place ("we're in Houston, TX", a ZIP code, "Buncombe County, NC", or a short reply after the assistant asks where they are), `/api/locate` geocodes it with Esri. The map, resources, alerts and the agents' location context then move there, with a visible notice.
+  - Only city, county or ZIP-level places are accepted, never a whole state.
+  - A bare name that exists in several states is ignored unless one is far more prominent (Asheville resolves to NC; Norfolk alone stays ambiguous).
+  - Free text is never geocoded wholesale ("my house" would otherwise become House, Alabama).
 - **Local manager:** VDEM public directory snapshot for Virginia, matched by locality and geocoded. Other states currently require the state/211 directory when a verified local listing is not present.
 - **Weather alerts:** National Weather Service active alerts by selected point. Empty results never imply no hazard or no local evacuation order. Failed requests are shown as unavailable. Refresh is user initiated.
 - **FEMA:** live OpenFEMA DisasterDeclarationsSummaries, FemaRegions and DataSets, plus the supplied data documentation. Recent declarations are context only; they are not used to determine eligibility or deadlines.

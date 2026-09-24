@@ -1,9 +1,9 @@
-export type Kind = 'shelter'|'responder'|'hospital'|'vet'|'manager';
+export type Kind = 'shelter'|'drc'|'responder'|'hospital'|'vet'|'manager';
 export type Place = {id:string;kind:Kind;name:string;address:string;lat:number;lng:number;phone?:string;email?:string;url:string;source:'official'|'provider'|'community';distance?:number;note?:string;reportedOpen?:boolean;updated?:string;tags?:string[]};
 export type Area = {label:string;lat:number;lng:number;state:string;locality?:string};
 export const defaultArea:Area={label:'Norfolk, Virginia',lat:36.8508,lng:-76.2859,state:'VA',locality:'Norfolk'};
-export const limits:Record<Kind,number>={shelter:2,responder:2,hospital:1,vet:1,manager:1};
-export const kinds:Kind[]=['shelter','responder','hospital','vet','manager'];
+export const limits:Record<Kind,number>={shelter:2,drc:2,responder:2,hospital:1,vet:1,manager:1};
+export const kinds:Kind[]=['shelter','drc','responder','hospital','vet','manager'];
 export const zoneService='https://services3.arcgis.com/qVupYidwzMKkDQzr/arcgis/rest/services/Virginia_Evacuation_Zones_2020/FeatureServer/0';
 export const zoneTiles='https://services3.arcgis.com/qVupYidwzMKkDQzr/arcgis/rest/services/VirginiaHurricaneEvacuationZones_2020Update_TileCache/MapServer/tile/{z}/{y}/{x}';
 export const seedPlaces:Place[]=[
@@ -17,6 +17,18 @@ export const seedPlaces:Place[]=[
 ];
 export function miles(a:{lat:number;lng:number},b:{lat:number;lng:number}){const r=Math.PI/180;const dlat=(b.lat-a.lat)*r,dlng=(b.lng-a.lng)*r;const h=Math.sin(dlat/2)**2+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dlng/2)**2;return 3958.7613*2*Math.atan2(Math.sqrt(h),Math.sqrt(1-h));}
 export function nearest(places:Place[],area:Area){const withDistance=places.filter(p=>Number.isFinite(p.lat)&&Number.isFinite(p.lng)).map(p=>({...p,distance:miles(area,p)}));return kinds.flatMap(k=>withDistance.filter(p=>p.kind===k).sort((a,b)=>a.distance-b.distance).slice(0,limits[k]));}
+// Adds listings to an existing nearest-N list without duplicating a place.
+export function mergeNearby(existing:Place[],extra:Place[],area:Area){const all=[...existing];for(const p of extra){if(!Number.isFinite(p.lat)||!Number.isFinite(p.lng))continue;if(!all.some(x=>x.kind===p.kind&&(miles(x,p)<0.12||x.name.toLowerCase()===p.name.toLowerCase())))all.push(p);}return nearest(all,area);}
+// Veterinary clinics from OpenStreetMap, fetched by the browser (Overpass
+// allows cross-origin requests). Two public mirrors are tried in turn; both
+// are often busy, so a failure simply leaves the list as it was.
+const OVERPASS=['https://overpass-api.de/api/interpreter','https://overpass.private.coffee/api/interpreter'];
+export async function vetLookup(area:Area):Promise<Place[]>{
+ const q=`[out:json][timeout:6];(node(around:25000,${area.lat},${area.lng})[amenity=veterinary];way(around:25000,${area.lat},${area.lng})[amenity=veterinary];);out center tags 30;`;
+ for(const u of OVERPASS){try{const r=await fetch(u+'?data='+encodeURIComponent(q),{signal:AbortSignal.timeout(8000)});if(!r.ok)continue;const d:any=await r.json();
+  return (d.elements||[]).filter((e:any)=>e.tags?.name).map((e:any)=>{const t=e.tags;return {id:`osm-${e.type}-${e.id}`,kind:'vet' as Kind,name:t.name,address:[t['addr:housenumber'],t['addr:street'],t['addr:city'],t['addr:postcode']].filter(Boolean).join(' '),lat:e.lat??e.center?.lat,lng:e.lon??e.center?.lon,phone:t.phone||t['contact:phone']||undefined,url:`https://www.openstreetmap.org/${e.type}/${e.id}`,source:'community' as const};});}catch{/* next mirror */}}
+ return [];
+}
 export function seedFor(area:Area){return area.state==='VA'&&miles(area,defaultArea)<12?nearest(seedPlaces,area):[];}
 export const sourceLinks=[
  {name:'Virginia Department of Emergency Management',url:'https://www.vdem.virginia.gov/',group:'Virginia'},

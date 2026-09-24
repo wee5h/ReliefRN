@@ -1,5 +1,5 @@
 ﻿<#
-  Harbor + ReliefRN live agents: one-command local demo (Windows).
+  ReliefRN website + live Foundry agents: one-command local demo (Windows).
 
   Double-click start-demo.cmd, or run from PowerShell:
       .\start-demo.ps1            live Foundry agents
@@ -56,7 +56,7 @@ if ($Check) {
   exit $code
 }
 
-# ---- 2. Node + Harbor dependencies ---------------------------------------
+# ---- 2. Node + the ReliefRN website dependencies ---------------------------------------
 Step '2/4  Node.js'
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Fail 'Node.js 22.13 or newer is required: https://nodejs.org  (LTS installer)' }
 $nv = (node --version).TrimStart('v')
@@ -67,7 +67,7 @@ if ((Get-Command pnpm -ErrorAction SilentlyContinue) -and ((pnpm --version) -lik
   $pnpmExe = 'npx.cmd'; $pnpmArgs = @('--yes', 'pnpm@11.25.0')
 }
 if (-not (Test-Path (Join-Path $root 'node_modules\vinext\dist\cli.js'))) {
-  Write-Host 'Installing Harbor dependencies (first run only, about a minute) ...'
+  Write-Host 'Installing the ReliefRN website dependencies (first run only, about a minute) ...'
   Push-Location $root
   try { & $pnpmExe @pnpmArgs install --frozen-lockfile; $code = $LASTEXITCODE } finally { Pop-Location }
   if ($code) { Fail 'pnpm install failed. Check your internet connection and try again.' }
@@ -75,7 +75,7 @@ if (-not (Test-Path (Join-Path $root 'node_modules\vinext\dist\cli.js'))) {
 Write-Host "Node OK (v$nv)"
 
 # ---- 3. Agent bridge -----------------------------------------------------
-Step '3/4  Agent bridge (connects Harbor to the Foundry agents)'
+Step '3/4  Agent bridge (connects the ReliefRN website to the Foundry agents)'
 $bridgeProc = $null
 $h = Get-Health
 if ($h) {
@@ -96,11 +96,11 @@ if (-not $h) {
   Write-Host "$label ready: $($h.agents -join ', ')" -ForegroundColor Green
 } else {
   Write-Host "Not signed in to Azure: $($h.detail)" -ForegroundColor Yellow
-  Write-Host "Harbor will run in guided mode. See RUN-LOCALLY.md, 'Sign-in'." -ForegroundColor Yellow
+  Write-Host "the ReliefRN website will run in guided mode. See RUN-LOCALLY.md, 'Sign-in'." -ForegroundColor Yellow
 }
 
-# ---- 4. Harbor -----------------------------------------------------------
-Step '4/4  Harbor'
+# ---- 4. The ReliefRN website -----------------------------------------------------------
+Step '4/4  ReliefRN website'
 Write-Host 'Opening http://localhost:5173 when it is ready. Press Ctrl+C here to stop everything.'
 if (-not $NoBrowser) { Start-Job -ScriptBlock {
   for ($i = 0; $i -lt 120; $i++) {

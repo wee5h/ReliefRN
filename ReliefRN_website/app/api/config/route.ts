@@ -2,7 +2,7 @@ import {json,setting} from '@/lib/server';
 import {health} from '@/lib/foundry';
 
 // aiConfigured is true only when the agent bridge is running and signed in,
-// so Harbor never labels itself "live" while it is really answering from rules.
+// so the site never labels itself "live" while it is really answering from rules.
 export async function GET(){
  const h=await health(true);
  return json({

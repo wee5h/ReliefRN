@@ -4,8 +4,8 @@ import type * as Leaflet from 'leaflet';
 import {Crosshair,LoaderCircle,MapPin} from 'lucide-react';
 import {type Place,type Area} from '@/lib/resources';
 import {type Language,translations} from '@/lib/i18n';
-const colors={shelter:'#06786e',responder:'#b76725',hospital:'#c2495f',vet:'#7c59b4',manager:'#336497'};
-const symbols={shelter:'⌂',responder:'✦',hospital:'+',vet:'P',manager:'i'};
+const colors={shelter:'#06786e',drc:'#1f5fae',responder:'#b76725',hospital:'#c2495f',vet:'#7c59b4',manager:'#336497'};
+const symbols={shelter:'⌂',drc:'R',responder:'✦',hospital:'+',vet:'P',manager:'i'};
 export default function ResourceMap({area,places,zones,language,onSelect,focusId}:{area:Area;places:Place[];zones:boolean;language:Language;onSelect:(p:Place)=>void;focusId?:string}){
  const el=useRef<HTMLDivElement>(null),map=useRef<Leaflet.Map|null>(null),library=useRef<typeof Leaflet|null>(null),markers=useRef<Leaflet.LayerGroup|null>(null),zoneLayer=useRef<Leaflet.GeoJSON|null>(null),callback=useRef(onSelect);const [ready,setReady]=useState(false),[error,setError]=useState(false),[zoneStatus,setZoneStatus]=useState('');const t=translations[language];callback.current=onSelect;
  useEffect(()=>{let disposed=false;import('leaflet').then(L=>{if(disposed||!el.current)return;library.current=L;const m=L.map(el.current,{center:[area.lat,area.lng],zoom:12,zoomControl:false,scrollWheelZoom:false,attributionControl:true});map.current=m;L.control.zoom({position:'bottomright'}).addTo(m);let tileErrors=0;L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).on('tileerror',()=>{tileErrors++;if(tileErrors>8)setError(true);}).addTo(m);markers.current=L.layerGroup().addTo(m);const resize=new ResizeObserver(()=>m.invalidateSize());resize.observe(el.current);(m as any).__resize=resize;setReady(true);}).catch(()=>setError(true));return()=>{disposed=true;(map.current as any)?.__resize?.disconnect();map.current?.remove();map.current=null;};},[]);

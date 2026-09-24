@@ -1,10 +1,10 @@
-# Harbor website source
+# ReliefRN website source
 
 > **Running the demo with the live ReliefRN agents?** Read [RUN-LOCALLY.md](RUN-LOCALLY.md).
 > On Windows, double-click `start-demo.cmd`; on macOS/Linux, run `./start-demo.sh`.
 
 This is the complete published version 1 source, commit 05e78ca3b0c68226c0b2fc3dc86ed88121524599.
-The subsequent accessibility/haptics and non-Norfolk resource fixes are unfinished and are not included in this published snapshot.
+Since then: live Foundry agents (see RUN-LOCALLY.md), location detected from the chat, and nationwide resource lookup (USGS, FEMA Recovery Centers and shelters, OpenStreetMap vets). The accessibility/haptics fixes from the original backlog are still unfinished.
 
 ## Run locally
 
@@ -36,6 +36,6 @@ pnpm start
 
 No node_modules, generated builds, Git history, credentials, or local caches are included. Install dependencies with the command above.
 
-Harbor runs in directory mode without Azure credentials. AI and callbacks require your own configured services; see SETUP.md. External resource lookups require network access and may fail. The published snapshot has a known resource-lookup problem outside Norfolk.
+The ReliefRN website runs in directory mode without Azure credentials. AI and callbacks require your own configured services; see SETUP.md. External resource lookups require network access and may fail.
 
 The .openai/hosting.json file identifies the original Site. Use your own hosting project when deploying an independent copy. This archive does not include the hosted platform itself.

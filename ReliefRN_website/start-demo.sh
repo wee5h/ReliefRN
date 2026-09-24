@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Harbor + ReliefRN live agents: one-command local demo (macOS / Linux).
+# ReliefRN website + live Foundry agents: one-command local demo (macOS / Linux).
 #
 #   ./start-demo.sh            live Foundry agents
 #   ./start-demo.sh --check    sign in and test each agent once, then exit
@@ -52,12 +52,12 @@ node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a
   || fail "Node.js $(node --version) is too old. Install 22.13 or newer."
 if command -v pnpm >/dev/null 2>&1 && pnpm --version | grep -q '^11\.'; then PNPM=(pnpm); else PNPM=(npx --yes pnpm@11.25.0); fi
 if [ ! -f "$ROOT/node_modules/vinext/dist/cli.js" ]; then
-  echo "Installing Harbor dependencies (first run only, about a minute) ..."
+  echo "Installing the ReliefRN website dependencies (first run only, about a minute) ..."
   "${PNPM[@]}" install --frozen-lockfile || fail "pnpm install failed."
 fi
 echo "Node OK ($(node --version))"
 
-step "3/4  Agent bridge (connects Harbor to the Foundry agents)"
+step "3/4  Agent bridge (connects the ReliefRN website to the Foundry agents)"
 BRIDGE_PID=""
 cleanup() { [ -n "$BRIDGE_PID" ] && kill "$BRIDGE_PID" 2>/dev/null && echo "Agent bridge stopped."; }
 trap cleanup EXIT INT TERM
@@ -77,9 +77,9 @@ if [ -z "$H" ]; then
 elif echo "$H" | grep -q '"ok": true'; then
   echo "$H" | grep -q '"mode": "mock"' && echo "MOCK agents (fake replies) ready." || echo "Live Foundry agents ready."
 else
-  echo "Not signed in to Azure. Harbor will run in guided mode. See RUN-LOCALLY.md, 'Sign-in'."
+  echo "Not signed in to Azure. The ReliefRN website will run in guided mode. See RUN-LOCALLY.md, 'Sign-in'."
 fi
 
-step "4/4  Harbor"
+step "4/4  ReliefRN website"
 echo "Open http://localhost:5173 once it says Local. Press Ctrl+C to stop everything."
 node scripts/run-framework.mjs dev

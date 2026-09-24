@@ -1,6 +1,6 @@
-# Running Harbor with the live ReliefRN agents
+# Running the ReliefRN website with the live agents
 
-Harbor's chat is answered by the team's three Microsoft Foundry agents in the
+The website's chat is answered by the team's three Microsoft Foundry agents in the
 **ReliefRN** project:
 
 | Agent | When it runs |
@@ -9,7 +9,7 @@ Harbor's chat is answered by the team's three Microsoft Foundry agents in the
 | **Assistance-agent** | Every message. Looks up FEMA declarations through the team's FEMA MCP server and answers in the person's language. |
 | **WriteUp-agent** | When the person presses **Talk to a person**. It drafts the hand-off summary they review before anything is shared. |
 
-Under every live reply, Harbor shows a **Handled by** line naming the agents
+Under every live reply, the ReliefRN website shows a **Handled by** line naming the agents
 (and MCP tools) that actually ran, so you can see the system working rather
 than take it on trust.
 
@@ -34,7 +34,7 @@ Everything else installs into this folder.
    - **Windows:** double-click `start-demo.cmd`
    - **macOS / Linux:** `./start-demo.sh`
 
-   The first run installs dependencies (about a minute). Harbor then opens at
+   The first run installs dependencies (about a minute). The ReliefRN website then opens at
    **http://localhost:5173**. Press **Ctrl+C** in that window to stop.
 
 3. Things to try:
@@ -43,10 +43,13 @@ Everything else installs into this folder.
    - *"Someone texted me to pay a $50 fee to release my FEMA grant."*: the
      Safety agent reviews it first and flags it for a person.
    - Press **Talk to a person**: the WriteUp agent drafts the hand-off summary.
+   - *"Actually we evacuated to Weston, WV."*: the map, the resource list and the
+     agents' location all move there. Weston has FEMA Disaster Recovery Centers
+     open as of September 2026, so they appear at the top of the list.
    - Switch the language to **Español** and ask again.
 
 If the header says **Guided information** instead of **Connected assistant**,
-the agents are not reachable. Harbor still works, answering from built-in
+the agents are not reachable. The ReliefRN website still works, answering from built-in
 rules, and the reason is shown in the agent bridge window.
 
 To check the connection without the website:
@@ -61,7 +64,7 @@ This signs in and sends one test message to each agent.
 ## For the team: sign-in
 
 The agent bridge (`agent-bridge/bridge.py`) holds the Azure credential, because
-Harbor runs as a Worker and cannot use `az login` itself. It signs in with the
+The ReliefRN website runs as a Worker and cannot use `az login` itself. It signs in with the
 first of these that works:
 
 1. **A service principal** in `agent-bridge/.env` (what judges use).
@@ -120,7 +123,7 @@ against your subscription until you do.
 ## How it fits together
 
 ```
-Browser ──► Harbor (Worker, localhost:5173)
+Browser ──► ReliefRN website (Worker, localhost:5173)
               │  /api/chat: urgent or sensitive text is answered locally, at once
               ▼
             agent bridge (Python, 127.0.0.1:8765, holds the Azure sign-in)
@@ -131,7 +134,7 @@ Browser ──► Harbor (Worker, localhost:5173)
 ```
 
 - **Nothing is stored.** Each run uses a fresh Foundry conversation, which the
-  bridge deletes afterwards. Harbor keeps chats in tab memory only.
+  bridge deletes afterwards. The ReliefRN website keeps chats in tab memory only.
 - **The bridge accepts local calls only.** It listens on 127.0.0.1, and refuses
   browser-originated requests and foreign Host headers. So a website you visit
   cannot use it to spend your Azure quota.
