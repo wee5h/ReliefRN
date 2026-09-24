@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+reliefrn-report-*.md
+.sites-runtime/
+test-output/
