@@ -1,0 +1,8 @@
+import { env } from 'cloudflare:workers';
+export function setting(name:string){return (env as unknown as Record<string,string>)[name]||process.env[name]||'';}
+export async function fetchJson(url:string,options:RequestInit={},timeout=10000):Promise<any>{const res=await fetch(url,{...options,signal:AbortSignal.timeout(timeout)});if(!res.ok)throw new Error(`Upstream ${res.status}`);return res.json();}
+export function json(value:unknown,status=200){return Response.json(value,{status,headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'}});}
+export function validPoint(lat:number,lng:number){return Number.isFinite(lat)&&Number.isFinite(lng)&&lat>=-90&&lat<=90&&lng>=-180&&lng<=180;}
+export function sameOrigin(request:Request){const origin=request.headers.get('origin');return !origin||origin===new URL(request.url).origin;}
+export async function readBody(request:Request,max=18000){if(Number(request.headers.get('content-length')||0)>max)throw new Error('Too large');const raw=await request.text();if(raw.length>max)throw new Error('Too large');return JSON.parse(raw);}
+export async function geocode(query:string){const params=new URLSearchParams({SingleLine:query,f:'json',outFields:'City,RegionAbbr,Subregion,Country',maxLocations:'5',countryCode:'USA',forStorage:'false'});const data=await fetchJson('https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?'+params);return (data.candidates||[]).filter((c:any)=>c.score>65).map((c:any)=>({label:c.address,lat:c.location.y,lng:c.location.x,state:c.attributes.RegionAbbr||'',locality:c.attributes.City||c.attributes.Subregion||''}));}

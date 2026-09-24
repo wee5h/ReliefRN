@@ -1,0 +1,2 @@
+import {json,setting} from '@/lib/server';
+export async function GET(){const connected=!!(setting('FOUNDRY_PROJECT_ENDPOINT')&&setting('FOUNDRY_ASSISTANT_ID')&&setting('AZURE_TENANT_ID')&&setting('AZURE_CLIENT_ID')&&setting('AZURE_CLIENT_SECRET'));return json({aiConfigured:connected,callbackConfigured:!!(setting('HANDOFF_WEBHOOK_URL')&&setting('HANDOFF_WEBHOOK_TOKEN')),voiceNumber:setting('SUPPORT_VOICE_NUMBER')||'',smsNumber:setting('SUPPORT_SMS_NUMBER')||''});}
