@@ -1,5 +1,8 @@
 # Harbor website source
 
+> **Running the demo with the live ReliefRN agents?** Read [RUN-LOCALLY.md](RUN-LOCALLY.md).
+> On Windows, double-click `start-demo.cmd`; on macOS/Linux, run `./start-demo.sh`.
+
 This is the complete published version 1 source, commit 05e78ca3b0c68226c0b2fc3dc86ed88121524599.
 The subsequent accessibility/haptics and non-Norfolk resource fixes are unfinished and are not included in this published snapshot.
 

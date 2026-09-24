@@ -1,26 +1,28 @@
 # Harbor — connection and operation guide
 
-The website is implemented and works in a clearly labelled directory mode without credentials. It does not impersonate an agency, claim the three Foundry agents are connected, or promise that a human will call until the appropriate service confirms a request.
+The website works in a clearly labelled directory mode without credentials. With the agent bridge running and signed in, its chat is answered by the ReliefRN project's three live Foundry agents. It does not impersonate an agency, or promise that a human will call until the appropriate service confirms a request.
 
-## Connect the existing three-agent project
+## Connect the ReliefRN agents
 
-This adapter targets Microsoft Foundry **classic connected agents**, using the project Threads/Runs API and `2025-05-15-preview`, which Microsoft's connected-agent documentation specifies. No agent is created or replaced. The website calls the assistance agent; the existing Foundry connections remain responsible for delegation to the safety and write-up agents.
+**To run it, see [RUN-LOCALLY.md](RUN-LOCALLY.md).** It is one command, and covers sign-in for the team and for judges.
 
-1. Obtain the project endpoint from Foundry's project overview. Format: `https://RESOURCE.services.ai.azure.com/api/projects/PROJECT`.
-2. Copy the assistance agent's `asst_…` identifier. Keep the safety and write-up agents connected to it.
-3. Configure a dedicated Entra service principal for the project. Give it the minimum Azure AI User / project permissions needed to run these agents and their tools. Follow Microsoft documentation for the permissions of each existing tool.
-4. Set `FOUNDRY_PROJECT_ENDPOINT`, `FOUNDRY_ASSISTANT_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET` as server environment values. Keep the client secret secret; never put it in a browser bundle or paste it into a public page. `.env.example` lists all keys. Hosted values must be set in site environment settings and deployed.
-5. Set a separate random `SESSION_SIGNING_SECRET` when practical. The client secret is the fallback signing key.
-6. Confirm the assistant's Foundry instructions require the safety agent on every response and the write-up agent only when a user requests a handoff. The website supplies those instructions on each run, preserves the configured connected tools, and returns observed tool names from the run steps. Verify the actual delegation traces with your own agent configuration before public release. Prompt instructions alone are not a guarantee that a connected tool is invoked.
-7. Test a normal assistance question, a multilingual question, an ambiguous eligibility question, an urgent message, and a requested summary. The local emergency rule immediately shows 911 guidance and does not wait for AI. Do not use real personal information for these tests.
+The ReliefRN project's agents are addressed **by name** through Foundry's Responses API: `Assistance-agent`, `Safety-EscalationAgent` and `WriteUp-agent`, in `https://disaster-ai-agent.services.ai.azure.com/api/projects/ReliefRN`. That is the same API `ready-route-web` and `test-python-site` use. The earlier adapter here targeted classic `asst_…` Threads/Runs agents and could not reach them, so it has been replaced.
 
-If your project uses the newer Responses/agent-name APIs or a published agent application endpoint rather than classic `asst_…` agents, the transport must be adapted to your endpoint before connecting. Do not substitute an Azure OpenAI model endpoint for the Foundry project endpoint.
+Harbor runs as a Worker, which cannot use `az login` or an interactive sign-in. So `lib/foundry.ts` talks to a small local Python service, `agent-bridge/bridge.py`, which holds the Azure credential and calls the agents with the official `azure-ai-projects` SDK. The bridge orchestrates the three agents:
+
+1. **Safety-EscalationAgent** reviews the message first when it concerns scams, payments, danger, legal, medical or other high-impact issues (keyword screen plus Harbor's `highImpact` rule). Its `ESCALATE: YES/NO` verdict sets Harbor's "talk to a person" prompt, and its assessment is passed to the next agent as evidence.
+2. **Assistance-agent** answers, using its configured tools (the FEMA MCP server).
+3. **WriteUp-agent** drafts the hand-off summary when the person asks for a human.
+
+The reply's links become Harbor's source list. The agents and MCP tools that actually ran are returned and shown under each reply as **Handled by**. Test a normal assistance question, a multilingual question, an ambiguous eligibility question, an urgent message, and a requested summary. The local emergency rule immediately shows 911 guidance and does not wait for AI. Do not use real personal information for these tests.
+
+Optional server settings: `AGENT_BRIDGE_URL` (default `http://127.0.0.1:8765`) and `AGENT_BRIDGE_TOKEN` (a shared secret, if the bridge runs somewhere other than this machine). Agent names, the project endpoint and credentials are configured in `agent-bridge/.env`; see `agent-bridge/.env.example`.
 
 ### Request flow
 
-`POST /api/chat` validates length, rejects obvious identification/financial numbers, detects urgent language, and starts an isolated Foundry thread. It returns an expiring, HMAC-signed run receipt, rather than allowing callers to provide arbitrary thread IDs. `GET /api/chat?token=…` polls the run and returns its final text, source citations, and tool-step names. Threads are deleted after a completed or failed run when Azure permits deletion. Deletion does not imply deletion of Azure audit logs or tool-provider records. A failed or timed-out request is never automatically resubmitted.
+`POST /api/chat` validates length, rejects obvious identification or financial numbers typed by the user, and answers urgent language locally. It then checks that the bridge is running and signed in. If so, it starts a bridge run and returns its run token. Otherwise it answers in guided mode, and the response's `fallback` field says why. `GET /api/chat?token=…` polls the run and returns its final text, sources and agent trail. `GET /api/config` reports `aiConfigured: true` only when the bridge is reachable **and** signed in, so the interface never labels guided answers as live. Each agent call uses a fresh Foundry conversation, which the bridge deletes afterwards. Deletion does not imply deletion of Azure audit logs or tool-provider records. A failed or timed-out request is never automatically resubmitted.
 
-Conversation text is in tab memory, not a database or browser persistent storage. For subsequent turns a bounded transcript is passed to a new isolated thread. No identity documents can be uploaded. Avoid configuring tools in Foundry that submit applications, send messages, or make other consequential changes without a separate explicit user confirmation.
+Conversation text is in tab memory, not a database or browser persistent storage. For later turns, a bounded transcript is passed to the agent as evidence. No identity documents can be uploaded. Avoid configuring tools in Foundry that submit applications, send messages, or make other consequential changes without a separate explicit user confirmation.
 
 ## Human handoff, phone and SMS
 

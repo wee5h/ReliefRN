@@ -1,0 +1,24 @@
+# Dependencies and local tool state
+node_modules/
+.sites-runtime/
+.wrangler/
+.vinext/
+dist/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+
+# Agent bridge: virtual environment and credentials
+agent-bridge/.venv/
+agent-bridge/.env
+agent-bridge/bridge.log
+__pycache__/
+
+# Machine-specific editor/agent config
+.claude/
+
+# Secrets
+.env
+.env.*
+!.env.example
+.dev.vars

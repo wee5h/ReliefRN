@@ -1,5 +1,5 @@
 import {translations,type Language} from './i18n';
-export type Message = {role:'user'|'assistant';content:string;sources?:{title:string;url:string}[];escalate?:boolean;mode?:string};
+export type Message = {role:'user'|'assistant';content:string;sources?:{title:string;url:string}[];escalate?:boolean;mode?:string;agents?:string[]};
 export function sensitive(text:string){return /\b\d{3}[ -]?\d{2}[ -]?\d{4}\b|\b(?:\d[ -]?){13,19}\b|(?:ssn|social security|bank account|routing number|verification code|one.time code|passport number|आधार|खाता संख्या|código de verificación|número de cuenta)\s*(?:is|es|है|:|=)?\s*\d/i.test(text);}
 export function urgent(text:string){return /\b(can'?t breathe|cannot breathe|chest pain|unconscious|trapped|drowning|suicid\w*|kill myself|immediate danger|severe bleeding|house is on fire|fire in my house|gas leak)\b|no puedo respirar|atrapad[oa]|sangrado grave|peligro inmediato|सांस नहीं|फँस|फंस|तुरंत खतरा|आत्महत्या|गैस लीक/i.test(text);}
 export function highImpact(text:string){return /appeal|denied|immigra|citizenship|eviction|legal|abuse|human|representative|person|medical|pregnan|insulin|oxygen|medication|dementia|disab|accessib|discrimin|disputed|fraud|scam|no id|lost.*(id|document)|apelaci|deneg|persona|médic|medicamento|fraude|discap|दवा|इंसान|व्यक्ति|नागरिकता|धोख|दस्तावेज़|विकलांग|ऑक्सीजन/i.test(text);}
