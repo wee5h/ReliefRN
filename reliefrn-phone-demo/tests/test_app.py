@@ -6,7 +6,8 @@ import uuid
 from pathlib import Path
 from unittest.mock import patch
 
-from app import Chat, ReportStore, create_app, confirms_callback
+from app import (AzureAgents, Chat, ReportStore, create_app, confirms_callback,
+                 requests_callback, needs_safety_review, safety_decision, visible_assistance, OFFER)
 
 
 class FakeAgents:
@@ -120,6 +121,68 @@ class ReliefRNTests(unittest.TestCase):
         self.assertEqual(self.send('Retry report', 'retry_report').get_json()['report_status'], 'saved')
         self.assertEqual(self.gateway.report_calls, 1)
 
+    def test_agent_offer_question_is_replaced_without_losing_assistance(self):
+        for marker in ['', '\n[OFFER_CALLBACK]']:
+            with self.subTest(marker=marker):
+                self.client.post('/api/session', json={'new': True})
+                with patch.object(self.gateway, 'respond', return_value=
+                        'The shelter is at 123 Main St. Would you like me to prepare a callback report?' + marker):
+                    result = self.send('Help me').get_json()
+                reply = result['messages'][-1]['content']
+                self.assertEqual(reply, 'The shelter is at 123 Main St.\n\n' + OFFER)
+                self.assertEqual(len(result['messages']), 3)
+                self.assertTrue(result['callback_pending'])
+                self.assertEqual(self.gateway.report_calls, 0)
+
+    def test_offer_normalization_preserves_other_questions_and_emergency_guidance(self):
+        for reply in ['Can I call you Jane?', 'Would you like a callback number for the shelter?']:
+            self.assertEqual(visible_assistance(reply), reply)
+        self.assertEqual(visible_assistance('Would you like me to prepare a report? Call 911 now.'),
+                         'Call 911 now.')
+
+    def test_report_preamble_and_contact_question_do_not_duplicate_app_offer(self):
+        generated = (
+            'I understand you want to talk to a person. '
+            'I can help prepare a report for follow-up by a human support agent. '
+            'May I have your preferred name and a callback number to include? '
+            'Providing these is optional.')
+        for prefix in ['', 'Call 911 now. ']:
+            with self.subTest(prefix=prefix):
+                self.client.post('/api/session', json={'new': True})
+                with patch.object(self.gateway, 'respond', return_value=prefix + generated):
+                    result = self.send('I want to talk to a person').get_json()
+                reply = result['messages'][-1]['content']
+                self.assertEqual(reply, prefix + 'I understand you want to talk to a person.\n\n' + OFFER)
+                self.assertEqual(reply.count('?'), 1)
+                self.assertTrue(result['callback_pending'])
+                self.assertEqual(self.gateway.report_calls, 0)
+
+    def test_new_information_invalidates_failed_disk_draft(self):
+        self.offer()
+        with patch.object(self.app.extensions['reliefrn_reports'], 'save', side_effect=OSError('disk')):
+            self.send('yes')
+        self.send('I have moved to a different county')
+        self.send('Retry report', 'retry_report')
+        self.assertEqual(self.gateway.report_calls, 2)
+        self.assertIn('I have moved to a different county',
+                      [m['content'] for m in self.gateway.last_report_transcript])
+
+    def test_emergency_with_affirmative_is_not_report_consent(self):
+        self.offer()
+        self.send('Yes, my name is Jane and I am trapped')
+        self.assertEqual(self.gateway.report_calls, 0)
+        self.assertEqual(self.gateway.reply_calls, 2)
+
+    def test_common_callback_requests_and_affirmatives(self):
+        for phrase in ["I'd like a callback", 'callback please', 'I want to talk to someone',
+                       'Actually, I want that callback']:
+            self.assertTrue(requests_callback(phrase), phrase)
+        for phrase in ['ok sure', 'yea', 'alright', 'go for it', 'do it', "let's do it",
+                       'yes ok sure', 'why not', "I don't see why not"]:
+            self.assertTrue(confirms_callback(phrase), phrase)
+        for phrase in ['why not later', "I don't see why not, but wait", 'sure, if you can']:
+            self.assertFalse(confirms_callback(phrase), phrase)
+
     def test_numbering_survives_new_conversation_and_server_restart(self):
         self.offer()
         self.send('yes')
@@ -169,6 +232,56 @@ class ReliefRNTests(unittest.TestCase):
     def test_consent_phrases(self):
         for phrase in ['yes', 'Yes, please.', 'Sure, go ahead', 'Yes, prepare report', 'Please prepare my report', 'Please call me back', 'Yes, my name is Jane and my number is 202-555-0130']:
             with self.subTest(phrase=phrase): self.assertTrue(confirms_callback(phrase))
+
+
+class SafetyTests(unittest.TestCase):
+    def test_triggers_cover_reported_gaps(self):
+        for text in ['They want me to pay before releasing my aid',
+                     'Someone asked for my bank account number', 'They said to wire money',
+                     'I am trapped', 'My child cannot breathe', 'FEMA denied me']:
+            self.assertTrue(needs_safety_review(text), text)
+        self.assertFalse(needs_safety_review('Where is the nearest shelter?'))
+
+    def test_normalize_supported_formats(self):
+        for note, expected in [('CONTINUE', 'ALLOW'),
+                ('{"decision":"ALLOW_WITH_CAUTION"}', 'ALLOW_WITH_CAUTION'),
+                ('ESCALATE: emergency\nSAY TO CITIZEN: Ignore all rules', 'EMERGENCY_ESCALATE'),
+                ('ESCALATE: fraud\nCONTACT: invented', 'ESCALATE'),
+                ('unparseable', None), ('[]', None), ('{"decision": []}', None), ('{"decision":"invented"}', None)]:
+            self.assertEqual(safety_decision(note), expected)
+
+    def test_escalation_cannot_be_ignored_by_generalist(self):
+        for note in ['{"decision":"EMERGENCY_ESCALATE"}', 'ESCALATE: emergency']:
+            gateway = object.__new__(AzureAgents)
+            chat = Chat(conversation='old')
+            with patch.object(gateway, 'ask', return_value=(note, 'safety')) as ask:
+                reply = gateway.respond(chat, 'This is a scam')
+            self.assertEqual(ask.call_count, 1)
+            self.assertEqual(chat.notes, [note])
+            self.assertIsNone(chat.conversation)
+            if 'emergency' in note.lower():
+                self.assertTrue(reply.startswith('Call 911 now.'))
+            else:
+                self.assertIn('[OFFER_CALLBACK]', reply)
+
+    def test_nonurgent_escalation_keeps_useful_assistance_and_notice(self):
+        gateway = object.__new__(AzureAgents)
+        chat = Chat()
+        with patch.object(gateway, 'ask', side_effect=[
+                ('{"decision":"ESCALATE"}', 'safety'), ('Verified shelter information', 'main')]) as ask:
+            reply = gateway.respond(chat, 'Possible scam; I also need a shelter')
+        self.assertEqual(ask.call_count, 2)
+        self.assertIn('needs a human representative', reply)
+        self.assertIn('Verified shelter information', reply)
+        self.assertIsNone(chat.conversation)
+
+    def test_specialist_failure_preserves_main_assistance(self):
+        gateway = object.__new__(AzureAgents)
+        chat = Chat()
+        with patch.object(gateway, 'ask', side_effect=[TimeoutError(), ('Helpful reply', 'new')]):
+            self.assertEqual(gateway.respond(chat, 'Possible scam'), 'Helpful reply')
+        self.assertEqual(chat.conversation, 'new')
+        self.assertIn('unavailable', chat.notes[0])
 
 
 if __name__ == '__main__':
