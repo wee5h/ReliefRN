@@ -2,3 +2,5 @@
 azure-ai-projects==2.7.0
 azure-identity==1.25.3
 openai==3.19.2
+# Read aloud for languages the computer has no voice for (Arabic, Urdu, Amharic, ...).
+edge-tts==7.2.8

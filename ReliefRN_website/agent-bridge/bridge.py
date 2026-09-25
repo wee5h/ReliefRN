@@ -437,6 +437,35 @@ def valid_body(body) -> str | None:
     return None
 
 
+# --- Read aloud -----------------------------------------------------------
+# Browsers read aloud with the voices installed on the computer, and most
+# computers have none for Arabic, Urdu, Amharic or Vietnamese (the browser then
+# stays silent or reads the text with an English voice). For those, the website
+# asks here for Microsoft neural speech, made with the open-source edge-tts
+# package. No Azure sign-in or key is involved, so it also works in mock mode.
+TTS_VOICES = {
+    "en": "en-US-AriaNeural", "es": "es-US-PalomaNeural", "zh": "zh-CN-XiaoxiaoNeural",
+    "vi": "vi-VN-HoaiMyNeural", "ar": "ar-SA-ZariyahNeural", "ko": "ko-KR-SunHiNeural",
+    "ur": "ur-PK-UzmaNeural", "am": "am-ET-MekdesNeural", "fr": "fr-FR-DeniseNeural",
+    "hi": "hi-IN-SwaraNeural",
+}
+TTS_MAX_CHARS = 6000
+
+
+def synthesize(text: str, language: str) -> bytes:
+    import asyncio
+    import edge_tts  # imported here so the agents still run if it is missing
+
+    async def run() -> bytes:
+        audio = bytearray()
+        async for chunk in edge_tts.Communicate(text, TTS_VOICES[language]).stream():
+            if chunk["type"] == "audio":
+                audio += chunk["data"]
+        return bytes(audio)
+
+    return asyncio.run(asyncio.wait_for(run(), timeout=45))
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "ReliefRNBridge/1.0"
     # HTTP/1.1 keep-alive matters: the website's Worker reuses the connection from
@@ -459,6 +488,14 @@ class Handler(BaseHTTPRequestHandler):
             # never parse it as the next request.
             self.send_header("Connection", "close")
             self.close_connection = True
+        self.end_headers()
+        self.wfile.write(data)
+
+    def send_audio(self, data: bytes) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "audio/mpeg")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
 
@@ -538,7 +575,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.guard():
             return
-        if urlparse(self.path).path != "/runs":
+        path = urlparse(self.path).path
+        if path == "/tts":
+            return self.tts()
+        if path != "/runs":
             return self.send(404, {"error": "not found"})
         try:
             body = self.read_json()
@@ -556,6 +596,29 @@ class Handler(BaseHTTPRequestHandler):
                             "cancelled": threading.Event()}
         pool.submit(execute, job_id, body)
         self.send(202, {"id": job_id})
+
+    def tts(self):
+        try:
+            body = self.read_json()
+        except Exception as err:  # noqa: BLE001
+            return self.send(400, {"error": f"invalid JSON ({first_line(err)})"})
+        text = body.get("text") if isinstance(body, dict) else None
+        language = body.get("language") if isinstance(body, dict) else None
+        if language not in TTS_VOICES or not isinstance(text, str) or not text.strip():
+            return self.send(400, {"error": "text and a supported language are required"})
+        text = text.strip()[:TTS_MAX_CHARS]
+        try:
+            audio = synthesize(text, language)
+        except ImportError:
+            log("  read aloud: edge-tts is not installed (pip install -r requirements.txt)")
+            return self.send(503, {"error": "edge-tts is not installed"})
+        except Exception as err:  # noqa: BLE001
+            log(f"  read aloud failed ({language}): {first_line(err)}")
+            return self.send(502, {"error": "speech service unavailable"})
+        if not audio:
+            return self.send(502, {"error": "no audio returned"})
+        log(f"  read aloud: {language}, {len(text)} chars -> {len(audio) // 1024} KB")
+        self.send_audio(audio)
 
     def do_DELETE(self):
         if not self.guard():
