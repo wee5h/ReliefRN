@@ -66,3 +66,14 @@ html[dir=rtl] .brand>span:last-child{direction:ltr;unicode-bidi:isolate}
 .voice-button.listening{color:#087c70}
 html.reduce-motion .voice-wave i{animation:none;opacity:1}
 @media (prefers-reduced-motion:reduce){.voice-wave i{animation:none;opacity:1}}
+/* ReliefRN logo (images in public/brand) */
+.brand{gap:9px;align-items:center;direction:ltr;letter-spacing:normal}
+.brand-logo-mark{height:42px;width:auto;flex:none}
+.brand .brand-text{display:flex;flex-direction:column;gap:5px;min-width:0;flex:1}
+.brand-logo-word{width:100%;max-width:150px;height:auto;display:block}
+.brand .brand-sub{margin:0;max-width:150px;font-size:.55rem;font-weight:700;letter-spacing:.15em;color:#1f3a45;line-height:1.3;text-transform:uppercase}
+html[dir=rtl] .brand .brand-sub{direction:rtl;text-align:start;letter-spacing:0;font-size:.72rem}
+.language-dialog .brand-logo-mark{height:46px}
+.brand.small{gap:6px;opacity:.75}
+.brand.small .brand-logo-mark{height:20px}
+.brand.small .brand-logo-word{max-width:74px}
