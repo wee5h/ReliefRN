@@ -1,7 +1,0 @@
-# Allowlist: secrets, editor state, and local Azure credentials never enter a build.
-**
-!Dockerfile
-!.dockerignore
-!go.mod
-!go.sum
-!*.go

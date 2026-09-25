@@ -5,7 +5,7 @@ let failedRequest = null;
 const uid = () => crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 function updateClock() {
-  $('clock').textContent = new Date().toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
+  $('clock').textContent = new Date().toLocaleTimeString('en-US', {hour: 'numeric', minute: '2-digit'}).replace(/\s*[AP]M$/, '');
 }
 updateClock();
 setInterval(updateClock, 30000);
@@ -40,17 +40,17 @@ function messageContent(element, value) {
   element.append(document.createTextNode(text.slice(end)));
 }
 
-function renderMessage(message, pending = false) {
+function renderMessage(message, pending = false, showStatus = true) {
   const row = document.createElement('div');
   row.className = `message-row ${message.role}`;
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
   messageContent(bubble, message.content);
   row.append(bubble);
-  if (message.role === 'user') {
+  if (message.role === 'user' && showStatus) {
     const meta = document.createElement('span');
     meta.className = 'message-meta';
-    meta.textContent = pending ? 'Sending…' : 'Delivered';
+    meta.textContent = pending ? 'Sending…' : 'Sent as Text Message';
     row.append(meta);
   }
   $('messages').append(row);
@@ -80,7 +80,8 @@ function addAction(label, action, secondary = false) {
 function render(next) {
   state = next;
   $('messages').replaceChildren();
-  for (const message of next.messages) renderMessage(message);
+  const lastUserIndex = next.messages.map(message => message.role).lastIndexOf('user');
+  next.messages.forEach((message, index) => renderMessage(message, false, index === lastUserIndex));
   for (const report of next.reports) renderReport(report);
   $('date-label').textContent = 'Today ' + new Date(next.started_at).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
   $('actions').replaceChildren();
