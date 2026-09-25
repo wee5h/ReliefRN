@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ready Route: disaster help near you</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧭</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root {
+    --navy: #16324a;
+    --teal: #0f766e;
+    --teal-dark: #0b5a54;
+    --mist: #eaf4f8;
+    --line: #c9dde6;
+    --amber-bg: #fff4dc;
+    --amber: #92400e;
+    --red: #b91c1c;
+    --white: #ffffff;
+    --font: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: var(--font);
+    font-size: 17px;
+    line-height: 1.5;
+    color: var(--navy);
+    background: var(--mist);
+    display: flex;
+    flex-direction: column;
+  }
+  :focus-visible { outline: 3px solid #f59e0b; outline-offset: 2px; }
+
+  /* Top bar: the 911 button is always one tap away */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 20px;
+    background: var(--navy);
+    color: var(--white);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+    .brand h1 { margin: 0; font-size: 1.3rem; white-space: nowrap; }
+  .brand p { margin: 0; font-size: 0.85rem; color: #b8d4e3; }
+  .call-911 {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-radius: 999px;
+    background: var(--red);
+    color: var(--white);
+    font-weight: 700;
+    font-size: 1rem;
+    text-decoration: none;
+    white-space: nowrap;
+    box-shadow: 0 0 0 3px rgba(255,255,255,0.18);
+  }
+  .call-911:hover { background: #991b1b; }
+
+  main {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    gap: 16px;
+    padding: 16px 20px 20px;
+  }
+
+  /* Chat */
+  .chat {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--white);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  #log {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .msg { max-width: 85%; padding: 12px 16px; border-radius: 16px; }
+  .msg p { margin: 0 0 8px; }
+  .msg p:last-child { margin-bottom: 0; }
+  .msg.bot { background: #f1f7fa; border-bottom-left-radius: 4px; align-self: flex-start; }
+  .msg.user { background: var(--teal); color: var(--white); border-bottom-right-radius: 4px; align-self: flex-end; }
+  .msg.safety { background: var(--amber-bg); color: var(--amber); align-self: flex-start; font-size: 0.92rem; }
+  .msg.typing { color: #5b7a8e; font-style: italic; }
+  .intro h2 { margin: 0 0 4px; font-size: 1.35rem; }
+  .suggestions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .suggestions button {
+    font: inherit;
+    font-size: 0.95rem;
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1.5px solid var(--teal);
+    background: var(--white);
+    color: var(--teal-dark);
+    text-align: left;
+    cursor: pointer;
+  }
+  .suggestions button:hover { background: #e6f4f2; }
+
+  .composer { border-top: 1px solid var(--line); padding: 12px 16px 14px; }
+  .composer form { display: flex; gap: 8px; }
+  .composer textarea {
+    flex: 1;
+    font: inherit;
+    resize: none;
+    padding: 10px 14px;
+    border: 1.5px solid var(--line);
+    border-radius: 12px;
+    min-height: 48px;
+    max-height: 140px;
+  }
+  .btn {
+    font: inherit;
+    font-weight: 700;
+    padding: 10px 18px;
+    border-radius: 12px;
+    border: none;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn-primary { background: var(--teal); color: var(--white); }
+  .btn-primary:hover { background: var(--teal-dark); }
+  .btn-secondary { background: transparent; color: var(--navy); border: 1.5px solid var(--navy); }
+  .btn:disabled { opacity: 0.55; cursor: wait; }
+  .composer-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 10px; }
+  .privacy { margin: 0; font-size: 0.85rem; color: #4d6b7e; }
+
+  /* Map */
+  .map-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--white);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .map-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 16px; }
+  .map-head h2 { margin: 0; font-size: 1.1rem; }
+  .map-head p { margin: 2px 0 0; font-size: 0.85rem; color: #4d6b7e; }
+  #map { flex: 1; min-height: 320px; }
+  .leaflet-control-layers { font-family: var(--font); font-size: 0.9rem; }
+
+  details.report { margin-top: 8px; }
+  details.report pre { white-space: pre-wrap; font-family: var(--font); font-size: 0.9rem; margin: 8px 0 0; }
+
+  @media (max-width: 860px) {
+    main { grid-template-columns: 1fr; padding: 12px; }
+    .chat { min-height: 70vh; }
+    .brand p { display: none; }
+    header { padding: 10px 12px; }
+    .call-911 { padding: 9px 14px; font-size: 0.95rem; }
+    .msg { max-width: 100%; }
+    #log { padding: 14px; }
+    .composer-footer { flex-direction: column-reverse; align-items: stretch; }
+    .map-head { flex-direction: column; align-items: stretch; }
+  }
+  @media (max-width: 480px) { .call-911 .long { display: none; } }
+  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true"><circle cx="17" cy="17" r="17" fill="#0f766e"/><path d="M17 7c-4.4 0-8 3.4-8 7.7C9 20.5 17 27 17 27s8-6.5 8-12.3C25 10.4 21.4 7 17 7z" fill="#fff"/><circle cx="17" cy="14.6" r="3.2" fill="#0f766e"/></svg>
+    <div>
+      <h1>Ready Route</h1>
+      <p>Disaster help from FEMA and official sources</p>
+    </div>
+  </div>
+  <a class="call-911" href="tel:911" aria-label="In danger? Call 911"><span class="long">In danger? </span>Call 911</a>
+</header>
+
+<main>
+  <section class="chat" aria-label="Chat with Ready Route">
+    <div id="log" aria-live="polite">
+      <div class="msg bot intro">
+        <h2>What happened, and where are you?</h2>
+        <p>Tell me your city or county and what you need. I'll find help from FEMA and other official sources. You can write in any language.</p>
+        <div class="suggestions">
+          <button type="button">What help can I get after the hurricane?</button>
+          <button type="button">What documents do I need? I lost my ID.</button>
+          <button type="button">Someone asked me to pay a fee for FEMA aid. Is it a scam?</button>
+          <button type="button">¿Qué ayuda hay en el condado de Harris, Texas?</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="composer">
+      <form id="chat-form">
+        <textarea id="input" aria-label="Your message" rows="1" placeholder="Describe what happened" required></textarea>
+        <button class="btn btn-primary" id="send" type="submit">Send</button>
+      </form>
+      <div class="composer-footer">
+        <p class="privacy">Don't share your Social Security or bank numbers here. FEMA never charges a fee to apply.</p>
+        <button class="btn btn-secondary" id="human" type="button">Talk to a person</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="map-panel" aria-label="Help near you">
+    <div class="map-head">
+      <div>
+        <h2>Help near you</h2>
+        <p>Open shelters, recovery centers, hospitals, fire and police</p>
+      </div>
+      <button class="btn btn-primary" id="locate" type="button">Use my location</button>
+    </div>
+    <div id="map" role="region" aria-label="Map of nearby help"></div>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="/static/nearby-emergency-places.js"></script>
+<script>
+  const sessionId = crypto.randomUUID();
+  const log = document.getElementById("log");
+  const form = document.getElementById("chat-form");
+  const input = document.getElementById("input");
+  const sendBtn = document.getElementById("send");
+  const humanBtn = document.getElementById("human");
+
+  // Show agent text safely: escape HTML, then allow **bold** and line breaks.
+  function formatText(text) {
+    const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return escaped
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .split(/\n{2,}/).map(p => `<p>${p.replace(/\n/g, "<br>")}</p>`).join("");
+  }
+
+  function addMessage(text, kind) {
+    const div = document.createElement("div");
+    div.className = `msg ${kind}`;
+    div.innerHTML = formatText(text);
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+    return div;
+  }
+
+  function setBusy(busy) {
+    sendBtn.disabled = busy;
+    humanBtn.disabled = busy;
+  }
+
+  async function send(message) {
+    addMessage(message, "user");
+    setBusy(true);
+    const typing = addMessage("Looking this up…", "bot typing");
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId, message }),
+      });
+      const data = await res.json();
+      typing.remove();
+      if (data.safety_checked) {
+        addMessage("Safety check done: this message was reviewed for scam warning signs.", "safety");
+      }
+      addMessage(data.reply || data.error, "bot");
+    } catch (err) {
+      typing.remove();
+      addMessage("Ready Route isn't responding. Check that server.py is running. If you are in danger, call 911.", "bot");
+    } finally {
+      setBusy(false);
+      input.focus();
+    }
+  }
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const message = input.value.trim();
+    if (!message) return;
+    input.value = "";
+    send(message);
+  });
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
+  });
+
+  document.querySelectorAll(".suggestions button").forEach(btn =>
+    btn.addEventListener("click", () => send(btn.textContent))
+  );
+
+  humanBtn.addEventListener("click", async () => {
+    setBusy(true);
+    const typing = addMessage("Preparing a summary for a FEMA representative…", "bot typing");
+    try {
+      const res = await fetch("/api/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+      const data = await res.json();
+      typing.remove();
+      if (!res.ok) { addMessage(data.error, "bot"); return; }
+      const div = addMessage("Your case summary is ready for a representative (demo: email simulated). For faster help now, call the FEMA Helpline at 1-800-621-3362.", "bot");
+      const details = document.createElement("details");
+      details.className = "report";
+      details.innerHTML = "<summary>View the summary</summary><pre></pre>";
+      details.querySelector("pre").textContent = data.report;
+      div.appendChild(details);
+    } catch (err) {
+      typing.remove();
+      addMessage("The summary couldn't be sent. Call the FEMA Helpline at 1-800-621-3362.", "bot");
+    } finally {
+      setBusy(false);
+    }
+  });
+
+  // Map: starts on Norfolk, VA; loads nearby places when the person shares location.
+  const map = L.map("map").setView([36.8508, -76.2859], 12);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap contributors",
+  }).addTo(map);
+
+  const locateBtn = document.getElementById("locate");
+  let placesLoaded = false;
+
+  async function showPlaces(lat, lon) {
+    map.setView([lat, lon], 12);
+    L.circleMarker([lat, lon], { radius: 9, color: "#fff", weight: 3, fillColor: "#1d4ed8", fillOpacity: 1 })
+      .addTo(map).bindPopup("You are here");
+    if (!placesLoaded) {
+      placesLoaded = true;
+      await loadNearbyPlaces(map, lat, lon, 10);
+    }
+  }
+
+  locateBtn.addEventListener("click", () => {
+    locateBtn.disabled = true;
+    locateBtn.textContent = "Finding you…";
+    const done = () => { locateBtn.textContent = "Location shown"; };
+    if (!navigator.geolocation) {
+      showPlaces(36.8508, -76.2859).then(done);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => showPlaces(pos.coords.latitude, pos.coords.longitude).then(done),
+      () => showPlaces(36.8508, -76.2859).then(() => { locateBtn.textContent = "Showing Norfolk, VA"; }),
+      { timeout: 8000 }
+    );
+  });
+</script>
+</body>
+</html>
