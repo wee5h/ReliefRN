@@ -1,7 +1,7 @@
 import {json,readBody,sameOrigin} from '@/lib/server';
 import {health,start,poll,cancel} from '@/lib/foundry';
 import {guidedAnswer,sensitive,urgent,highImpact,type Message} from '@/lib/safety';
-import {translations,type Language} from '@/lib/i18n';
+import {translations,isLanguage,type Language} from '@/lib/i18n';
 
 // POST starts a live-agent run and returns a token to poll. Urgent and
 // sensitive messages never wait for AI: they are answered locally at once.
@@ -9,7 +9,7 @@ export async function POST(request:Request){
  if(!sameOrigin(request))return json({error:'Invalid origin'},403);
  let b:any;
  try{b=await readBody(request);}catch{return json({error:'Invalid request'},400);}
- const language:Language=['en','es','hi'].includes(b.language)?b.language:'en';
+ const language:Language=isLanguage(b.language)?b.language:'en';
  const list=Array.isArray(b.messages)?b.messages:[];
  if(!list.length||list.length>20||list.some((m:any)=>!['user','assistant'].includes(m.role)||typeof m.content!=='string'||!m.content.length||m.content.length>5000))return json({error:'Invalid messages'},400);
  const last=list[list.length-1].content;const summary=b.mode==='summary';

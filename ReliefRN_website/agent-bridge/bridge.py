@@ -74,7 +74,8 @@ BRIDGE_TOKEN = os.environ.get("AGENT_BRIDGE_TOKEN", "")
 #   MCP_APPROVE_TOOLS=search_disasters,get_disaster_details
 MCP_APPROVE = {t.strip() for t in os.environ.get("MCP_APPROVE_TOOLS", "*").split(",") if t.strip()}
 
-LANGUAGES = {"en": "English", "es": "Spanish", "hi": "Hindi"}
+LANGUAGES = {"en": "English", "es": "Spanish", "zh": "Simplified Chinese", "vi": "Vietnamese",
+             "ar": "Arabic", "ko": "Korean", "ur": "Urdu", "am": "Amharic", "fr": "French", "hi": "Hindi"}
 
 # --- Prompts ---------------------------------------------------------------
 # Kept close to the team's working prompts in ready-route-web/server.py so
@@ -125,7 +126,9 @@ REVIEW_WORDS = re.compile(
     r"ssn|social security|bank|password|urgent|emergency|danger|trapped|hurt|injur|"
     r"suicid|kill|abus|violen|missing|died|dead|death|funeral|denied|appeal|immigra|"
     r"evict|lawyer|legal|pregnan|oxygen|insulin|dialysis|medicat|disab|wheelchair|"
-    r"estafa|fraude|cuota|peligro|urgente|herid|muert|desaparec|धोख|खतरा|आपात|शुल्क",
+    r"estafa|fraude|cuota|peligro|urgente|herid|muert|desaparec|धोख|खतरा|आपात|शुल्क|"
+    r"诈骗|骗局|费用|手续费|危险|lừa đảo|phí|nguy hiểm|احتيال|نصب|رسوم|خطر|사기|수수료|위험|"
+    r"دھوکہ|فراڈ|فیس|خطرہ|ማጭበርበር|ክፍያ|አደጋ|arnaque|escroquerie|frais|danger|urgence",
     re.IGNORECASE)
 ESCALATE_LINE = re.compile(r"ESCALATE:\s*YES", re.IGNORECASE)
 ESCALATE_HINT = re.compile(

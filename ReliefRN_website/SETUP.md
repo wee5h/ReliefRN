@@ -71,7 +71,17 @@ Government decisions and eligibility should be grounded in the official source t
 
 ## Accessibility, languages and offline operation
 
-English, Spanish and Hindi interface dictionaries are included. Original agency names, addresses, source titles and weather notices stay in their source language. The source-language notice is provided. Browser text-to-speech and speech input depend on device support.
+The interface is fully translated into ten languages. The picker shows English first, then the languages most spoken in Virginia homes (U.S. Census American Community Survey): Spanish, Chinese (Simplified), Vietnamese, Arabic, Korean, Urdu, Amharic and French. Hindi, which was already supported, comes last. The seven newer translations (`lib/i18n.ts`) were written for this prototype and should be reviewed by native speakers before public use, especially the safety and eligibility text.
+
+- **Right-to-left:** Arabic and Urdu switch the whole layout to right-to-left, with the sidebar on the right. The map, phone numbers and the brand name stay left-to-right.
+- **Letter-spacing:** it is turned off for scripts it would break (joined Arabic and Urdu letters) or crowd (Chinese, Korean, Amharic).
+- **What the language setting changes:**
+  - The live agents are told to reply in the chosen language.
+  - Browser speech uses that language's voice.
+  - The local emergency rule (immediate 911 guidance, no AI wait) recognises key danger phrases in all ten languages.
+  - The rule-based guided answers used when the AI is not connected only match keywords in English, Spanish and Hindi. In the other languages they fall back to a general, translated prompt.
+- **Source language:** original agency names, addresses, source titles and weather notices stay in their source language, and a notice says so.
+- **Device support:** browser text-to-speech and speech input depend on the device having a voice for that language.
 
 The site uses semantic headings, keyboard navigation, focus-managed Radix dialogs, labelled controls, a resource list equivalent to the map, larger text, higher contrast, reduced motion, and guidance for mobility, hearing, vision, speech, cognition, dementia, and medication/equipment needs. Do not claim formal WCAG certification without an audit.
 
