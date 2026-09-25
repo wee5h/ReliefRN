@@ -7,7 +7,7 @@ const chats = new Map();
 let number = 0;
 const offer = 'I can prepare a brief for human follow-up. Forwarding and callbacks are simulated in this demo. Would you like me to prepare your callback report?';
 function fresh() {
-  return {messages: [{role: 'assistant', content: "Hi, I'm ReliefRN, an AI disaster-assistance navigator. What do you need help with?"}], reports: [], started_at: new Date().toISOString(), callback_pending: false, report_status: 'none', test_mode: true};
+  return {messages: [{role: 'assistant', content: "Hi, I'm ReliefRN. I'm an automated disaster assistance agent. I can help you find shelter, disaster aid, and local services. I support most languages. What do you need help with?"}], reports: [], started_at: new Date().toISOString(), callback_pending: false, report_status: 'none', test_mode: true};
 }
 export default defineConfig({
   server: {host: '0.0.0.0', allowedHosts: ['terminal.local']},

@@ -27,7 +27,9 @@ TENANT_ID = os.getenv("TENANT_ID", "9e857255-df57-4c47-a0c0-0546460380cb")
 ASSISTANT_AGENT = os.getenv("ASSISTANT_AGENT", "Assistance-agent")
 SAFETY_AGENT = os.getenv("SAFETY_AGENT", "Safety-EscalationAgent")
 WRITEUP_AGENT = os.getenv("WRITEUP_AGENT", "WriteUp-agent")
-GREETING = "Hi, I'm ReliefRN, an AI disaster-assistance navigator. What do you need help with?"
+GREETING = ("Hi, I'm ReliefRN. I'm an automated disaster assistance agent. "
+            "I can help you find shelter, disaster aid, and local services. "
+            "I support most languages. What do you need help with?")
 OFFER = ("I can prepare a brief for human follow-up. Forwarding and callbacks are simulated "
          "in this demo. Would you like me to prepare your callback report?")
 OFFER_MARKER = "[OFFER_CALLBACK]"
