@@ -1,5 +1,5 @@
 export type Kind = 'shelter'|'drc'|'responder'|'hospital'|'vet'|'manager';
-export type Place = {id:string;kind:Kind;name:string;address:string;lat:number;lng:number;phone?:string;email?:string;url:string;source:'official'|'provider'|'community';distance?:number;note?:string;reportedOpen?:boolean;updated?:string;tags?:string[]};
+export type Place = {id:string;kind:Kind;name:string;address:string;lat:number;lng:number;phone?:string;email?:string;url:string;source:'official'|'provider'|'community'|'mentioned';distance?:number;note?:string;reportedOpen?:boolean;updated?:string;tags?:string[]};
 export type Area = {label:string;lat:number;lng:number;state:string;locality?:string};
 export const defaultArea:Area={label:'Norfolk, Virginia',lat:36.8508,lng:-76.2859,state:'VA',locality:'Norfolk'};
 export const limits:Record<Kind,number>={shelter:2,drc:2,responder:2,hospital:1,vet:1,manager:1};
@@ -19,14 +19,18 @@ export function miles(a:{lat:number;lng:number},b:{lat:number;lng:number}){const
 export function nearest(places:Place[],area:Area){const withDistance=places.filter(p=>Number.isFinite(p.lat)&&Number.isFinite(p.lng)).map(p=>({...p,distance:miles(area,p)}));return kinds.flatMap(k=>withDistance.filter(p=>p.kind===k).sort((a,b)=>a.distance-b.distance).slice(0,limits[k]));}
 // Adds listings to an existing nearest-N list without duplicating a place.
 export function mergeNearby(existing:Place[],extra:Place[],area:Area){const all=[...existing];for(const p of extra){if(!Number.isFinite(p.lat)||!Number.isFinite(p.lng))continue;if(!all.some(x=>x.kind===p.kind&&(miles(x,p)<0.12||x.name.toLowerCase()===p.name.toLowerCase())))all.push(p);}return nearest(all,area);}
-// Veterinary clinics from OpenStreetMap, fetched by the browser (Overpass
-// allows cross-origin requests). Two public mirrors are tried in turn; both
-// are often busy, so a failure simply leaves the list as it was.
+// Veterinary clinics and year-round shelters from OpenStreetMap, fetched by
+// the browser (Overpass allows cross-origin requests). FEMA's shelter feed only
+// lists disaster shelters that are open right now, so OSM fills in the family
+// and homeless shelters people are actually referred to. Two public mirrors are
+// tried in turn; both are often busy, so a failure leaves the list as it was.
+// Shelters for people without housing; not respite, nursing or animal shelters.
+const SHELTER_FOR=(f?:string)=>!f||/homeless|displaced|family|underprivileged|refugee|victim|women|youth/i.test(f);
 const OVERPASS=['https://overpass-api.de/api/interpreter','https://overpass.private.coffee/api/interpreter'];
-export async function vetLookup(area:Area):Promise<Place[]>{
- const q=`[out:json][timeout:6];(node(around:25000,${area.lat},${area.lng})[amenity=veterinary];way(around:25000,${area.lat},${area.lng})[amenity=veterinary];);out center tags 30;`;
+export async function communityLookup(area:Area):Promise<Place[]>{
+ const q=`[out:json][timeout:8];(nwr(around:25000,${area.lat},${area.lng})[amenity=veterinary];nwr(around:30000,${area.lat},${area.lng})[social_facility=shelter];);out center tags 60;`;
  for(const u of OVERPASS){try{const r=await fetch(u+'?data='+encodeURIComponent(q),{signal:AbortSignal.timeout(8000)});if(!r.ok)continue;const d:any=await r.json();
-  return (d.elements||[]).filter((e:any)=>e.tags?.name).map((e:any)=>{const t=e.tags;return {id:`osm-${e.type}-${e.id}`,kind:'vet' as Kind,name:t.name,address:[t['addr:housenumber'],t['addr:street'],t['addr:city'],t['addr:postcode']].filter(Boolean).join(' '),lat:e.lat??e.center?.lat,lng:e.lon??e.center?.lon,phone:t.phone||t['contact:phone']||undefined,url:`https://www.openstreetmap.org/${e.type}/${e.id}`,source:'community' as const};});}catch{/* next mirror */}}
+  return (d.elements||[]).filter((e:any)=>e.tags?.name&&(e.tags.amenity==='veterinary'||SHELTER_FOR(e.tags['social_facility:for']))).map((e:any)=>{const t=e.tags;const kind:Kind=t.amenity==='veterinary'?'vet':'shelter';return {id:`osm-${e.type}-${e.id}`,kind,name:t.name,address:[t['addr:housenumber'],t['addr:street'],t['addr:city'],t['addr:postcode']].filter(Boolean).join(' '),lat:e.lat??e.center?.lat,lng:e.lon??e.center?.lon,phone:t.phone||t['contact:phone']||undefined,url:`https://www.openstreetmap.org/${e.type}/${e.id}`,source:'community' as const};});}catch{/* next mirror */}}
  return [];
 }
 export function seedFor(area:Area){return area.state==='VA'&&miles(area,defaultArea)<12?nearest(seedPlaces,area):[];}
@@ -49,3 +53,6 @@ export const sourceLinks=[
 ];
 export const stateAgencies:Record<string,{name:string;url:string;zone?:string}>={VA:{name:'Virginia Department of Emergency Management',url:'https://www.vdem.virginia.gov/',zone:'https://va-know-your-zone-vdemgis.hub.arcgis.com/'},NC:{name:'North Carolina Emergency Management',url:'https://www.ncdps.gov/our-organization/emergency-management'},FL:{name:'Florida Division of Emergency Management',url:'https://www.floridadisaster.org/'},CA:{name:'California Governor’s Office of Emergency Services',url:'https://www.caloes.ca.gov/'},TX:{name:'Texas Division of Emergency Management',url:'https://tdem.texas.gov/'},NY:{name:'New York Homeland Security and Emergency Services',url:'https://www.dhses.ny.gov/'}};
 export function stateAgency(state:string){return stateAgencies[state]||{name:'USA.gov · state emergency agencies',url:'https://www.usa.gov/state-emergency-management'};}
+
+/** @deprecated use communityLookup */
+export const vetLookup=communityLookup;

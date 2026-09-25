@@ -301,7 +301,7 @@ class MockAgents:
                     "Next action for a human: MOCK summary, not from Foundry.", [])
         if used is not None:
             used.append(f"{agent} → search_disasters")
-        return (f"**[MOCK — not your live Foundry agent]**\n\nYou said: {last[:200]}\n\n"
+        return (f"**[MOCK — not your live Foundry agent]**\n\nYou said: {last[:1500]}\n\n"
                 "- See [DisasterAssistance.gov](https://www.disasterassistance.gov/)\n"
                 "- FEMA: https://www.fema.gov/disaster/declarations", [])
 

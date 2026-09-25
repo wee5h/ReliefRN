@@ -55,6 +55,11 @@ There is no general public FEMA endpoint configured to accept these summaries as
 - **Resource lookup (nationwide):**
   - **USGS National Map structures** provide hospitals, ambulance stations, fire/EMS stations and police, within 25 miles.
   - **FEMA Disaster Recovery Centers** and the **FEMA National Shelter System open-shelter layer** each cover 50 miles. Both only have entries during active disasters, so an empty list is normal elsewhere.
+  - **Places the assistant names:** when a live reply names a place with a street address ("Fair Ridge Shelter, 3997 Fair Ridge Drive, Fairfax, VA 22033"), `/api/mentions` geocodes that address and adds the place to the list and map, labelled "Named by your assistant · call to confirm". This keeps the page consistent with the chat.
+    - Only street-level geocoder matches within 60 miles are accepted.
+    - If every named place is in another city than the map shows (the person asked about Fairfax while the map was on Norfolk), the map moves to that city first.
+    - Clearing the chat removes these places.
+  - **OpenStreetMap** also provides year-round family and homeless shelters. FEMA's feed only lists disaster shelters that are open right now.
   - **OpenStreetMap** provides veterinary clinics within about 15 miles. The browser fetches these directly: from the local Worker, public Overpass servers hang. Two Overpass mirrors are tried in turn, and both are often busy, so vets can be missing on a bad day.
   - The nearest listings are ranked by straight-line (Haversine) distance: two shelters, two Recovery Centers, two responder stations, one hospital and one veterinary hospital.
   - This is not a complete inventory, live responder tracking, admission confirmation, or a safe travel route. OSM is labelled community data, not government information.
