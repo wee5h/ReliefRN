@@ -467,6 +467,8 @@ def create_app(gateway, report_dir=None):
     chats_lock = threading.Lock()
     reports = ReportStore(report_dir if report_dir is not None else Path.cwd())
     app.extensions.update(reliefrn_chats=chats, reliefrn_reports=reports)
+    from voice import register_voice
+    register_voice(app, gateway, PROJECT_ENDPOINT, ASSISTANT_AGENT, report_error=log_failure)
 
     @app.before_request
     def same_origin():
