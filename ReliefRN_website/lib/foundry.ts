@@ -80,6 +80,16 @@ export async function poll(token:string){
   return {status:'pending'};
 }
 
+// Neural read-aloud audio (MP3) for languages the browser has no voice for.
+export async function speak(text:string, language:string){
+  const headers:Record<string,string> = {'Content-Type':'application/json'};
+  const token = setting('AGENT_BRIDGE_TOKEN');
+  if (token) headers['X-Bridge-Token'] = token;
+  const res = await fetch(bridge() + '/tts', {method:'POST', headers, body:JSON.stringify({text, language}), signal:AbortSignal.timeout(50000)});
+  if (!res.ok || !(res.headers.get('Content-Type') || '').startsWith('audio/')) throw new Error(`Agent bridge ${res.status}`);
+  return res.arrayBuffer();
+}
+
 export async function cancel(token:string){
   if (!RUN_ID.test(token)) return;
   await call('/runs/' + token, {method:'DELETE'}).catch(() => {});
