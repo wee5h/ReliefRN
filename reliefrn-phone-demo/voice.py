@@ -7,7 +7,10 @@ import base64
 import json
 import logging
 import os
+import re
+import socket
 import ssl
+import threading
 import time
 from urllib.parse import urlsplit
 
@@ -33,14 +36,12 @@ VOICE_CONTEXT = """Application-selected channel: voice. This is a simulated brow
 These channel-specific directions describe the current application's capabilities.
 Apply general report and callback instructions only when this interface supports them.
 
-Speak naturally in the caller's language. Prefer brief, direct replies and one
-question at a time. Give the most useful next action first, avoid repeating
-yourself, and offer more detail when helpful. Before speaking, quietly consider
-whether unnecessary wording can be removed. There is no fixed word, sentence,
-or speaking-time limit: use as much detail as the situation needs, particularly
-for safety, clear explanations, and complete phone numbers or addresses. Do not
-announce this check or stop an answer midway just to make it shorter. Treat the
-saved voice sentence count as a brevity preference, not a mandatory cutoff.
+Speak naturally in the caller's language. Use two or three short sentences and ask
+one question at a time. Lead with the most useful next action. Do not restate what
+the caller just said, do not list caveats before answering, and do not pad. Extra
+length is for the places it carries weight: safety steps, and phone numbers and
+addresses, which you always give in full. This is a phone call, so a long turn
+costs the caller real waiting time.
 
 Follow your saved source-verification, privacy, and safety instructions. Use your
 configured lookup tools for factual assistance. Do not invent resources or availability.
@@ -48,23 +49,25 @@ You are an automated agent, not FEMA or a human. For immediate danger, tell the 
 to call 911 now; you cannot contact emergency services. Never delay this for tools.
 Do not collect sensitive identifiers.
 
-CONSENT AND HUMAN SUPPORT IN THIS VOICE INTERFACE
-The voice/web report-consent workflow is proposed, not active in this voice app.
-This call has no report-consent controls, report preparation or saving, keypad
-consent, callbacks, or transfers. Do not offer a report, ask permission to prepare
-one, or emit or speak [OFFER_CALLBACK]. Do not collect a name or callback number
-for unavailable follow-up. Do not invoke WriteUp, report, email, or transfer tools.
-Never claim that information was saved as a report, forwarded, or sent to FEMA,
-or that a callback or human handoff has been arranged.
+HUMAN SUPPORT AND REPORTS IN THIS VOICE INTERFACE
+When the caller asks for a person, a representative, a callback, or a report, your
+very next turn is one short question asking for their full name. Ask for the name
+first. Do not explain what you can and cannot do, do not read out official contacts
+first, and do not ask why they want a person. One sentence, one question.
 
-If the caller requests a person, report, or callback, briefly explain the relevant
-limitation and provide verified official human-support contact options. Continue
-helping with the original need. Do not pressure the caller or repeat unwanted
-offers. Microphone permission, a request for a person, a spoken yes, END, silence,
-or hanging up does not authorize preparing or saving a report. Report consent
-must be recorded and enforced by the application, never inferred by the agent.
-Immediate danger takes priority over consent or contact collection; a simulated
-report must never replace real emergency or human-support contact guidance.
+Once they give a name, confirm in one short sentence that you have noted it for human
+follow-up, and say that forwarding and callbacks are simulated in this demo. Then get
+back to helping with the original need. The application itself writes and saves the
+report when the call ends, so never state a report number and never say a report has
+already been saved, forwarded, or sent to FEMA. You cannot transfer a live call and
+you cannot speak [OFFER_CALLBACK]. If the caller will not give a name, drop it and
+give verified official human-support contact options instead.
+
+Report creation is started and recorded by the application, never inferred by you:
+a request for a person, a spoken yes, silence, or hanging up does not by itself
+authorize a report. Immediate danger takes priority over a name, a report, or any
+contact collection, and a simulated report never replaces real emergency or
+human-support contact guidance.
 
 The available languages are English, Spanish, Mandarin Chinese, Vietnamese, Arabic,
 Korean, Tagalog, Urdu, and French. Continue in the caller's language; clarify if unclear.
@@ -95,12 +98,48 @@ def session_settings(language="auto"):
             "language": ",".join(item["code"] for item in LANGUAGES) if language == "auto" else language,
         },
         "voice": {"type": "azure-standard", "name": os.getenv("VOICELIVE_VOICE", "en-US-AvaMultilingualNeural")},
-        # Volume VAD supports all configured languages, unlike English-only semantic VAD.
+        # silence_duration_ms is dead air on every single turn: nothing is committed
+        # and no generation starts until it elapses. 650 read as lag before the model
+        # did any work; the SDK's own sample uses 500. prefix_padding_ms is lookback
+        # into the buffer already captured, so it costs nothing -- leave it alone.
+        # (azure_semantic_vad_multilingual and semantic_detection_v1_multilingual also
+        # exist and would cut this further, but neither is confirmed on this resource.)
         "turn_detection": {"type": "server_vad", "threshold": 0.5,
-                           "prefix_padding_ms": 300, "silence_duration_ms": 650},
+                           "prefix_padding_ms": 300,
+                           "silence_duration_ms": int(os.getenv("VOICELIVE_SILENCE_MS", "400"))},
         "input_audio_noise_reduction": {"type": "azure_deep_noise_suppression"},
         "input_audio_echo_cancellation": {"type": "server_echo_cancellation"},
     }
+
+
+# A spoken request to reach a person. The application watches for this so report
+# creation is started by the app, not inferred by the agent from a vague "yes".
+HUMAN_REQUEST = re.compile(
+    r"(?:(?:talk|speak|connect|transfer|put\s+me\s+through)\s+(?:me\s+|us\s+)?(?:to|with)\s+"
+    r"(?:a|an|the|some)?\s*(?:real|actual|live|human)?\s*"
+    r"(?:person|human|someone|somebody|agent|representative|rep|operator|"
+    r"advisor|case\s*worker|caseworker|supervisor|manager)"
+    r"|(?:real|actual|live)\s+(?:person|human|people)"
+    r"|human\s+(?:being|support|help|agent)"
+    r"|call\s+me\s+back|calls?\s+back|callback"
+    r"|(?:file|make|create|prepare|submit|start|open)\s+(?:a|an|my|the)?\s*"
+    r"(?:report|claim|case)"
+    r"|have\s+(?:someone|somebody|a\s+person)\s+(?:call|contact|reach)"
+    r"|need\s+(?:to\s+)?(?:a\s+)?(?:person|human|representative))", re.I)
+# Questions, refusals and hedges are answers to something else, not a name.
+NOT_A_NAME = re.compile(r"\?|\b(?:no|nope|not|don't|dont|why|what|who|how|when|where|"
+                        r"never\s*mind|nevermind|cancel|stop|wait|nothing|rather\s+not)\b", re.I)
+
+
+def caller_name(text):
+    """Read a spoken name, rejecting a sentence, a question or a refusal."""
+    value = " ".join((text or "").split())
+    value = re.sub(r"^(?:my\s+name\s+is|the\s+name\s+is|name'?s|this\s+is|it'?s|"
+                   r"i'?m|i\s+am|call\s+me)\s+", "", value, flags=re.I)
+    value = value.strip(" .,!\"'")
+    if not value or len(value) > 60 or len(value.split()) > 5 or NOT_A_NAME.search(value):
+        return None
+    return value
 
 
 def validate_audio(message):
@@ -123,7 +162,58 @@ def voice_ssl_context():
     return context
 
 
-async def live_call(ws, gateway, project_endpoint, agent, language):
+# Browser-bound frames are queued, never written from the event loop. Deep enough
+# to ride out a briefly unresponsive tab, shallow enough that shedding audio beats
+# freezing the bridge.
+OUTBOUND_FRAMES = 400
+# A turn with no response.done by now is stalled, not thinking.
+RESPONSE_TIMEOUT = float(os.getenv("VOICELIVE_RESPONSE_TIMEOUT", "25"))
+# Tool-approval rounds per turn, mirroring the SMS path's attempt cap.
+APPROVAL_ROUNDS = 3
+# Consecutive unusable browser frames tolerated before the call is a lost cause.
+BAD_FRAME_LIMIT = 25
+CALL_LIMIT = 1800
+
+
+class _SerialSocket:
+    """Make flask-sock's writes safe for this bridge.
+
+    simple_websocket writes with ``sock.send()`` and discards the return value, so
+    a short write silently truncates a frame and the browser's parser desyncs. It
+    also writes from two threads: this bridge, and its own reader thread, which
+    emits a keepalive Ping every ping_interval. Complete every write and serialize
+    them so no frame can be truncated or interleaved.
+    """
+
+    def __init__(self, sock):
+        self._sock = sock
+        self._lock = threading.Lock()
+
+    def send(self, data):
+        view = memoryview(data)
+        with self._lock:
+            sent = 0
+            while sent < len(view):
+                sent += self._sock.send(view[sent:])
+            return sent
+
+    def __getattr__(self, name):
+        return getattr(self._sock, name)
+
+
+def harden_socket(ws):
+    """Complete short writes, and stop Nagle batching 40 ms audio frames."""
+    raw = getattr(ws, "sock", None)
+    if raw is None or isinstance(raw, _SerialSocket):
+        return
+    try:
+        raw.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    except OSError:
+        pass
+    ws.sock = _SerialSocket(raw)
+
+
+async def live_call(ws, gateway, project_endpoint, agent, language, session=None):
     from azure.ai.voicelive.aio import connect
 
     parsed = urlsplit(project_endpoint)
@@ -136,67 +226,200 @@ async def live_call(ws, gateway, project_endpoint, agent, language):
                        connection_options={"vendor_options": {"ssl": voice_ssl_context()}}) as conn:
         await conn.send({"type": "session.update", "event_id": "voice_session_update",
                          "session": session_settings(language)})
+        log = logging.getLogger("reliefrn")
+        harden_socket(ws)
+        outbound = asyncio.Queue(maxsize=OUTBOUND_FRAMES)
+        turn = {"pending": None, "rounds": 0, "hangup": False}
+        session = session if session is not None else {}
+        transcript = session.setdefault("transcript", [])
+        session.setdefault("name", None)
+        stage = {"value": "idle"}
+
+        def emit(payload):
+            """Queue a browser-bound frame. Never blocks, so the loop never stalls."""
+            try:
+                outbound.put_nowait(payload)
+            except asyncio.QueueFull:
+                # A wedged tab should cost audio, not the entire call.
+                if payload.get("type") == "audio":
+                    return
+                try:
+                    outbound.get_nowait()
+                except asyncio.QueueEmpty:
+                    pass
+                outbound.put_nowait(payload)
+
+        async def writer():
+            """The only writer to the browser socket, and never on the loop thread.
+
+            ws.send is a blocking syscall on a Werkzeug socket that carries no
+            timeout. Called inline it froze this coroutine, the Azure event loop,
+            the mic-forwarding task and the SDK heartbeat all at once.
+            """
+            while True:
+                payload = await outbound.get()
+                try:
+                    await asyncio.to_thread(ws.send, json.dumps(payload))
+                except Exception:
+                    turn["hangup"] = True
+                    return
+
+        def note_request(text):
+            """Decide here, not in the agent, whether the call earns a report.
+
+            Only the name is captured during the call. The report itself is written
+            at hangup, so the writeup gets the whole conversation as evidence.
+            """
+            if stage["value"] == "awaiting_name":
+                name = caller_name(text)
+                if name:
+                    session["name"] = name
+                    stage["value"] = "named"
+                    log.info("Voice caller gave a name after asking for a person")
+                return
+            if stage["value"] == "idle" and HUMAN_REQUEST.search(text):
+                stage["value"] = "awaiting_name"
+                log.info("Voice caller asked for a person; waiting for a name")
+
+        async def watchdog():
+            """Surface a turn that never finishes instead of showing 'Listening'."""
+            while True:
+                await asyncio.sleep(1)
+                started = turn["pending"]
+                if started and time.monotonic() - started > RESPONSE_TIMEOUT:
+                    turn["pending"] = None
+                    raise VoiceServiceError(
+                        {"message": f"No response completed within {RESPONSE_TIMEOUT:.0f}s"},
+                        "response generation")
 
         async def upstream():
             ready = False
             async for event in conn:
                 kind = event.type
                 if kind in {"session.created", "session.updated", "response.created"}:
-                    logging.getLogger("reliefrn").info("Voice Live event=%s", kind)
+                    log.info("Voice Live event=%s", kind)
+                if kind == "response.created":
+                    turn["pending"] = time.monotonic()
                 if kind == "session.updated" and not ready:
                     ready = True
                     await conn.send({"type": "conversation.item.create", "event_id": "voice_context", "item": {
                         "type": "message", "role": "system",
                         "content": [{"type": "input_text", "text": VOICE_CONTEXT}]}})
                     await conn.send({"type": "response.create", "event_id": "voice_greeting"})
-                    ws.send(json.dumps({"type": "ready"}))
+                    turn["pending"] = time.monotonic()
+                    emit({"type": "ready"})
                 elif kind == "response.audio.delta":
                     # SDK decodes the wire's base64 into PCM bytes. Browser JSON
                     # transport needs base64 again, not bytes or their string repr.
-                    audio = base64.b64encode(event.delta).decode("ascii")
-                    ws.send(json.dumps({"type": "audio", "audio": audio}))
+                    emit({"type": "audio", "audio": base64.b64encode(event.delta).decode("ascii")})
                 elif kind in {"response.audio_transcript.done", "conversation.item.input_audio_transcription.completed"}:
-                    ws.send(json.dumps({"type": "transcript", "role": "user" if kind.startswith("conversation") else "assistant",
-                                        "text": event.transcript.replace("[OFFER_CALLBACK]", "")}))
+                    role = "user" if kind.startswith("conversation") else "assistant"
+                    text = event.transcript.replace("[OFFER_CALLBACK]", "")
+                    transcript.append({"role": role, "content": text})
+                    if role == "user":
+                        note_request(text)
+                    emit({"type": "transcript", "role": role, "text": text})
                 elif kind == "input_audio_buffer.speech_started":
-                    ws.send(json.dumps({"type": "interrupt"}))
+                    turn["rounds"] = 0
+                    emit({"type": "interrupt"})
                 elif kind == "response.done":
+                    turn["pending"] = None
                     response = event.as_dict().get("response", {})
                     if response.get("status") == "failed":
                         details = response.get("status_details") or {}
                         raise VoiceServiceError(details.get("error", details), "response generation",
                                                 response.get("id"))
                     # Use the SMS application's explicit read-only allowlist. Deny other tools.
+                    decided = False
                     for item in response.get("output", []):
-                        if item.get("type") == "mcp_approval_request":
-                            key = f"{item.get('server_label', '')}:{item.get('name', '')}"
-                            approved = key in gateway.approved_tools
+                        if item.get("type") != "mcp_approval_request":
+                            continue
+                        key = f"{item.get('server_label', '')}:{item.get('name', '')}"
+                        approved = key in gateway.approved_tools
+                        if not approved:
+                            log.warning("Voice Live denied tool %s; add it to "
+                                        "RELIEFRN_READ_ONLY_TOOLS to allow the lookup", key)
+                        await conn.send({"type": "conversation.item.create", "item": {
+                            "type": "mcp_approval_response", "approval_request_id": item["id"],
+                            "approve": approved}})
+                        decided = True
+                    # Continue the turn exactly once per batch. response.create cancels
+                    # the generation already in flight by default, so one per approval
+                    # made the requests cancel each other and clipped the reply.
+                    if decided:
+                        turn["rounds"] += 1
+                        if turn["rounds"] > APPROVAL_ROUNDS:
+                            # A denied tool gets re-requested, and an unbounded
+                            # deny/retry ping-pong is pure silence on the call.
+                            log.warning("Voice Live hit %d approval rounds; answering without tools",
+                                        APPROVAL_ROUNDS)
+                            turn["rounds"] = 0
                             await conn.send({"type": "conversation.item.create", "item": {
-                                "type": "mcp_approval_response", "approval_request_id": item["id"], "approve": approved}})
-                            await conn.send({"type": "response.create"})
-                    ws.send(json.dumps({"type": "response_done"}))
+                                "type": "message", "role": "system",
+                                "content": [{"type": "input_text", "text":
+                                             "Tool lookups are unavailable for this turn. Answer now "
+                                             "from what you already know, briefly say what you could "
+                                             "not verify, and do not call any tool."}]}})
+                        await conn.send({"type": "response.create"})
+                        turn["pending"] = time.monotonic()
+                    else:
+                        turn["rounds"] = 0
+                    emit({"type": "response_done"})
                 elif kind == "error":
                     # The shared logger redacts credentials; the browser receives a generic error.
-                    raise VoiceServiceError(event.error.as_dict(),
-                                            "conversation" if ready else "session configuration",
-                                            getattr(event, "event_id", None))
+                    details = event.error.as_dict()
+                    if not ready or details.get("type") == "server_error":
+                        raise VoiceServiceError(details, "conversation" if ready else "session configuration",
+                                                getattr(event, "event_id", None))
+                    # Most Voice Live errors are recoverable and the session stays open.
+                    # Raising on every one was ending whole calls over a transient.
+                    log.warning("Voice Live recoverable error: %s",
+                                details.get("message") or details.get("code"))
+                elif kind in {"response.mcp_call.failed", "mcp_list_tools.failed",
+                              "conversation.item.input_audio_transcription.failed"}:
+                    # Silently ignored before: a failed lookup or failed recognition
+                    # looks identical to the agent ignoring the caller.
+                    log.warning("Voice Live %s: %s", kind, event.as_dict())
+            # The SDK's iterator returns rather than raises when Azure drops the
+            # socket, so this used to end the call with no message and no log line.
+            if not turn["hangup"]:
+                raise VoiceServiceError({"message": "Voice Live closed the connection"}, "conversation")
 
         async def downstream():
-            deadline = time.monotonic() + 1800
-            while time.monotonic() < deadline:
+            deadline = time.monotonic() + CALL_LIMIT
+            unusable = 0
+            while True:
+                if time.monotonic() > deadline:
+                    # Expiring used to drop the call with no explanation at all.
+                    turn["hangup"] = True
+                    emit({"type": "error", "message": "This demo call reached its 30-minute "
+                                                      "limit. You can call again."})
+                    await asyncio.sleep(.25)  # let the writer flush before teardown
+                    return
                 raw = await asyncio.to_thread(ws.receive, timeout=0.25)
                 if raw is None:
                     if not ws.connected:
+                        turn["hangup"] = True
                         return
                     continue
-                if not isinstance(raw, str) or len(raw) > 34000:
-                    raise ValueError("Invalid message")
-                message = json.loads(raw)
-                if isinstance(message, dict) and message.get("type") == "end":
-                    return
-                await conn.send({"type": "input_audio_buffer.append", "audio": validate_audio(message)})
+                try:
+                    if not isinstance(raw, str) or len(raw) > 34000:
+                        raise ValueError("Invalid message")
+                    message = json.loads(raw)
+                    if isinstance(message, dict) and message.get("type") == "end":
+                        turn["hangup"] = True
+                        return
+                    audio = validate_audio(message)
+                except ValueError:
+                    # One unusable frame must not end a live call. A flood still does.
+                    unusable += 1
+                    if unusable > BAD_FRAME_LIMIT:
+                        raise
+                    continue
+                unusable = 0
+                await conn.send({"type": "input_audio_buffer.append", "audio": audio})
 
-        tasks = [asyncio.create_task(upstream()), asyncio.create_task(downstream())]
+        tasks = [asyncio.create_task(job()) for job in (upstream, downstream, writer, watchdog)]
         try:
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in done:
@@ -207,7 +430,31 @@ async def live_call(ws, gateway, project_endpoint, agent, language):
             await asyncio.gather(*tasks, return_exceptions=True)
 
 
-def register_voice(app, gateway, project_endpoint, agent, report_error=None):
+def save_callback_report(session, make_report, agent=None, report_error=None):
+    """Write the callback report once the call is over.
+
+    Runs on the call's own worker thread after the socket closes, so a slow WriteUp
+    run cannot stall the bridge, and the writeup sees the entire conversation rather
+    than only the turns that happened to precede the caller giving their name.
+    """
+    session = session or {}
+    name, transcript = session.get("name"), session.get("transcript") or []
+    if not make_report or not name or not transcript:
+        return None
+    log = logging.getLogger("reliefrn")
+    try:
+        saved = make_report(list(transcript), name)
+        log.info("Voice callback report saved on hangup: %s", (saved or {}).get("filename"))
+        return saved
+    except Exception as error:
+        if report_error:
+            report_error(error, "Voice callback report", agent=agent)
+        else:
+            log.error("Voice callback report failed: %s", error)
+        return None
+
+
+def register_voice(app, gateway, project_endpoint, agent, report_error=None, make_report=None):
     app.config.setdefault("SOCK_SERVER_OPTIONS", {"ping_interval": 20, "max_message_size": 34000})
     sock = Sock(app)
 
@@ -226,6 +473,7 @@ def register_voice(app, gateway, project_endpoint, agent, report_error=None):
             ws.close(reason="Same-origin calls only")
             return
         language = request.args.get("language", "auto")
+        session = {"transcript": [], "name": None}
         try:
             session_settings(language)
             if gateway.test_mode:
@@ -236,7 +484,7 @@ def register_voice(app, gateway, project_endpoint, agent, report_error=None):
                     if raw and json.loads(raw).get("type") == "end":
                         break
             else:
-                asyncio.run(live_call(ws, gateway, project_endpoint, agent, language))
+                asyncio.run(live_call(ws, gateway, project_endpoint, agent, language, session))
         except Exception as error:
             if report_error:
                 report_error(error, "Voice Live connection", agent=agent)
@@ -248,4 +496,9 @@ def register_voice(app, gateway, project_endpoint, agent, report_error=None):
             except Exception:
                 pass
         finally:
-            ws.close()
+            # Close first: the report can take seconds, and the caller has hung up.
+            try:
+                ws.close()
+            except Exception:
+                pass
+            save_callback_report(session, make_report, agent, report_error)

@@ -65,10 +65,16 @@ function ring(call) {
 }
 function play(call, encoded) {
   const bytes = Uint8Array.from(atob(encoded), character => character.charCodeAt(0));
-  const view = new DataView(bytes.buffer);
-  const buffer = call.context.createBuffer(1, bytes.length / 2, 24000);
+  // An empty delta made createBuffer throw NotSupportedError, and the catch-all
+  // around onmessage turned that one bad frame into a dropped call.
+  if (bytes.length < 2) return;
+  // Azure streams faster than real time, so this runs hot on the main thread --
+  // the same thread that must service the capture port every 40 ms. An Int16Array
+  // view over the bytes is markedly cheaper than a per-sample DataView read.
+  const pcm = new Int16Array(bytes.buffer, 0, bytes.length >> 1);
+  const buffer = call.context.createBuffer(1, pcm.length, 24000);
   const samples = buffer.getChannelData(0);
-  for (let i = 0; i < samples.length; i++) samples[i] = view.getInt16(i * 2, true) / 32768;
+  for (let i = 0; i < pcm.length; i++) samples[i] = pcm[i] / 32768;
   const source = call.context.createBufferSource();
   source.buffer = buffer;
   source.connect(call.output);
@@ -92,6 +98,13 @@ function connected(call, preview = false) {
   call.timer = setInterval(() => {
     const seconds = Math.floor((Date.now() - call.started) / 1000);
     $('timer').textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+    // Waiting on a turn that never arrives used to show "Connected · Listening"
+    // indefinitely, which reassured the caller while nothing was happening. Say so
+    // instead of ending the call: a short utterance may legitimately draw no reply.
+    if (call.awaiting && Date.now() - call.awaiting > 12000) {
+      $('call-status').textContent = 'Still waiting for ReliefRN…';
+      return;
+    }
     if (call.sources.size === 0 && !call.muted) $('call-status').textContent = preview ? 'Preview connected' : 'Connected · Listening';
   }, 1000);
 }
@@ -107,6 +120,9 @@ async function start() {
   try {
     call.context = new AudioContext({sampleRate: 24000});
     await call.context.resume();
+    // Checked here rather than after getUserMedia: the caller should not grant the
+    // microphone and only then be told the browser cannot run the call at all.
+    if (call.context.sampleRate !== 24000) throw new Error('This browser cannot open 24 kHz audio. Try Chrome or Edge.');
     if (current !== call) return;
     ring(call);
     await sleep(1200);
@@ -116,7 +132,6 @@ async function start() {
     const stream = await navigator.mediaDevices.getUserMedia({audio: {channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true}, video: false});
     if (current !== call) {stream.getTracks().forEach(track => track.stop()); return;}
     call.stream = stream;
-    if (call.context.sampleRate !== 24000) throw new Error('This browser cannot open 24 kHz audio. Try Chrome or Edge.');
     call.output = call.context.createGain();
     call.output.connect(call.context.destination);
     await call.context.audioWorklet.addModule('/static/voice-capture.js');
@@ -127,11 +142,24 @@ async function start() {
     silent.gain.value = 0;
     call.input.connect(call.capture);
     call.capture.connect(silent).connect(call.context.destination);
+    call.silence = new Uint8Array(1920);
     call.capture.port.onmessage = event => {
-      if (current !== call || !call.ready || call.muted || config.preview || call.socket?.readyState !== WebSocket.OPEN) return;
-      if (call.socket.bufferedAmount > 128000) {fail(call, 'The connection cannot keep up with audio. Please call again.'); return;}
+      if (current !== call || !call.ready || config.preview || call.socket?.readyState !== WebSocket.OPEN) return;
+      // Muting used to stop sending altogether, so the server-side buffer never
+      // advanced, the silence timer never elapsed and the turn never closed -- the
+      // agent simply never replied. Keep the stream running with real silence.
+      const frame = call.muted ? call.silence : new Uint8Array(event.data);
+      // 128000 bytes is under 2 s of audio at 25 frames/s, so a brief stall used to
+      // end the call outright. A backlog means a slow tab, not a dead connection:
+      // shed frames and recover, and only give up once it stays congested.
+      if (call.socket.bufferedAmount > 262144) {
+        call.congested = (call.congested || 0) + 1;
+        if (call.congested > 250) fail(call, 'The connection cannot keep up with audio. Please call again.');
+        return;
+      }
+      call.congested = 0;
       let binary = '';
-      for (const byte of new Uint8Array(event.data)) binary += String.fromCharCode(byte);
+      for (let i = 0; i < frame.length; i += 4096) binary += String.fromCharCode.apply(null, frame.subarray(i, i + 4096));
       call.socket.send(JSON.stringify({type: 'audio', audio: btoa(binary)}));
     };
     state('connecting', config.preview ? 'Opening preview…' : 'Connecting voice…');
@@ -142,9 +170,15 @@ async function start() {
       try {
         const message = JSON.parse(event.data);
         if (message.type === 'ready') connected(call);
-        else if (message.type === 'audio') play(call, message.audio);
+        else if (message.type === 'audio') {call.awaiting = 0; play(call, message.audio);}
         else if (message.type === 'transcript') caption(message.role, message.text);
-        else if (message.type === 'interrupt') {stopAudio(call); $('call-status').textContent = call.muted ? 'Microphone muted' : 'Listening to you';}
+        // The server has always sent response_done; nothing here ever read it.
+        else if (message.type === 'response_done') call.awaiting = 0;
+        else if (message.type === 'interrupt') {
+          stopAudio(call);
+          call.awaiting = Date.now();
+          $('call-status').textContent = call.muted ? 'Microphone muted' : 'Listening to you';
+        }
         else if (message.type === 'error') fail(call, message.message);
         else if (message.type === 'preview') {
           connected(call, true);
