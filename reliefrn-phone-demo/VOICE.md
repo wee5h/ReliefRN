@@ -1,0 +1,41 @@
+# Simulated phone call
+
+The **Call** link in the SMS screen opens `/call` on the same Python server. It rings briefly, requests microphone permission, and connects to Microsoft Voice Live using the existing Python Azure Identity credential and saved Assistance-agent. No Azure CLI, phone number, carrier, or separate frontend build is involved.
+
+Controls include microphone mute, speaker output on/off, captions, a call timer, hang-up, and a language selector. Speaker toggles browser playback; it does not switch a physical handset's audio route. Hang-up closes the socket and releases microphone tracks. Recognition starts only after permission and the Voice Live session are ready.
+
+## Languages
+
+The server hardcodes nine recognition candidates in `voice.py`:
+
+| Language | Azure locale |
+| --- | --- |
+| English | `en-US` |
+| Spanish | `es-ES` |
+| Chinese (Mandarin) | `zh-CN` |
+| Vietnamese | `vi-VN` |
+| Arabic | `ar-SA` |
+| Korean | `ko-KR` |
+| Tagalog (Azure Filipino locale) | `fil-PH` |
+| Urdu | `ur-IN` |
+| French | `fr-FR` |
+
+Automatic mode sends the comma-separated list in `session.input_audio_transcription.language`, using `azure-speech`. Selecting a language sends only that locale. This is the code equivalent of configuring input languages in Foundry. English is the first automatic candidate. Output uses `en-US-AvaMultilingualNeural`; speech quality and resource availability require live validation. The greeting says **nine**, matching the supplied list.
+
+## Integration
+
+Dependencies are in the existing `requirements.txt`. The resource and project default to the existing `PROJECT_ENDPOINT`; the agent defaults to `ASSISTANT_AGENT`. Optional environment overrides are `VOICELIVE_ENDPOINT`, `VOICELIVE_PROJECT`, `VOICELIVE_AGENT`, and `VOICELIVE_VOICE`. No deployed agent instructions are changed.
+
+The browser streams mono PCM16 at 24 kHz through a same-origin WebSocket. The Python Voice Live SDK authenticates on the server and connects directly to the saved agent, preserving its configured tools. Browser messages can contain audio or hang-up only, not arbitrary agent events. Microphone audio is processed by Azure in live mode; this app does not write local recordings or transcripts.
+
+Voice uses the saved agent's safety instructions/tools. It does **not** run the SMS application's separate shadow safety check. MCP approval requests use the SMS backend's explicit `RELIEFRN_READ_ONLY_TOOLS` allowlist; other requests are denied. Voice cannot transfer a live call or place a real callback. It does generate callback reports. During the call the application (not the agent) watches for the caller asking to reach a person and then giving a name; it records only the name. When the call ends, the application writes the report through `WriteUp-agent` and saves it to the report directory, exactly as the SMS path does, using the whole transcript as evidence. No name means no report. The agent is never given a report number, so it cannot claim a report that does not exist. Forwarding and callbacks remain simulated. Ending a call is not report consent.
+
+The existing `--preview` mode provides a clearly labeled, browser-spoken scripted greeting and microphone permission testing. It does not transcribe speech, answer questions, or contact Azure. Live failures never silently switch to preview. Use localhost or HTTPS for microphone access.
+
+## References
+
+- [Microsoft Voice Live language configuration](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/voice-live-language-support)
+- [Voice Live with existing Foundry agents](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/voice-live-agents-quickstart)
+- [Voice Live session and audio configuration](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/voice-live-how-to)
+
+Offline tests cover language configuration, audio validation, page integration, and connection cleanup. Live Microsoft authentication, regional availability, tool behavior, and recognition quality in each language must be checked with an authorized session.

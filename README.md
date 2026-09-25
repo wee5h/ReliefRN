@@ -10,6 +10,29 @@ It is built on three **Microsoft Foundry agents** that work together: one answer
 
 ## How it works
 
+```text
+Citizen (SMS / Web / Voice)
+             |
+             v
+     Assistance Agent <---- Official resources
+             |
+             +---- Safety Agent (when needed)
+             |
+             v
+     Clear guidance + next steps
+             |
+             v
+     Optional report + user consent
+             |
+             v
+       WriteUp Agent
+             |
+             v
+     Report saved for human review
+```
+
+Demo: reports are saved locally; forwarding and callbacks are simulated.
+
 ![Disaster assistance workflow: people reach ReliefRN by website, SMS or phone; the Assistance agent answers with the Safety agent reviewing; on request the WriteUp-Agent prepares a report with a case ID for human follow-up](docs/disaster-assistance-workflow.webp)
 
 **1. Access.** People reach ReliefRN through whichever channel works for them. With reliable internet that is the website; without it, SMS or a phone call. Every channel talks to the same assistant.
@@ -24,7 +47,7 @@ It is built on three **Microsoft Foundry agents** that work together: one answer
 |---|---|
 | Website with live agents | **Working.** See [`ReliefRN_website`](ReliefRN_website) |
 | SMS-style conversation | **Working as a local demo.** A phone-style messaging site; no real texts are sent. See [`reliefrn-phone-demo`](reliefrn-phone-demo) |
-| Phone call (voice) | **Proposed.** The terminal demo can simulate voice-style replies. A real phone line would connect Azure Communication Services / Voice Live to the same agents |
+| Phone call (voice) | **Working as a browser demo.** Simulated call UI with live Microsoft Voice Live audio and nine languages. See [VOICE.md](reliefrn-phone-demo/VOICE.md). Real telephony and voice report consent are not implemented |
 | Safety agent review | **Working** on the website and in the SMS demo |
 | WriteUp-Agent summary with case ID | **Working.** Website: editable summary with an `RRN-…` reference, download and print. SMS demo: numbered report files saved locally |
 | Callback from a FEMA representative | **Simulated.** Nothing is forwarded to FEMA; the apps say so explicitly |
