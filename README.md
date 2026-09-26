@@ -110,22 +110,6 @@ They run in the Foundry project **ReliefRN** (`disaster-ai-agent.services.ai.azu
 
 ---
 
-## Quick start: the website
-
-You need **Python 3.10+** and **Node.js 22.13+**.
-
-```bash
-git clone https://github.com/wee5h/ReliefRN.git
-cd ReliefRN/ReliefRN_website
-```
-
-- **Windows:** double-click `start-demo.cmd`
-- **macOS / Linux:** run `./start-demo.sh`
-
-Sign in with an account that has the **Azure AI User** role on the ReliefRN Foundry project, then open **http://localhost:5173**. Judges use a service principal instead of their own account. That setup is explained in [RUN-LOCALLY.md](ReliefRN_website/RUN-LOCALLY.md).
-
----
-
 ## Team
 
 [@wee5h](https://github.com/wee5h) · [@SM-Code444](https://github.com/SM-Code444) · [@berzi05](https://github.com/berzi05)
