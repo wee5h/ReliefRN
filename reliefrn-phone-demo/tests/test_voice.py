@@ -10,10 +10,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch, AsyncMock
 
-from app import create_app
+from app import AzureAgents, Chat, create_app
 from preview_agent import PreviewAgents
 from voice import (LANGUAGES, GREETING, live_call, session_settings, validate_audio, voice_ssl_context,
-                   VoiceServiceError, _SerialSocket, HUMAN_REQUEST, caller_name, save_callback_report)
+                   VoiceServiceError, _SerialSocket, save_callback_report)
 
 
 class VoiceTests(unittest.TestCase):
@@ -158,21 +158,7 @@ class VoiceTests(unittest.TestCase):
         self.assertIn({'type': 'interrupt'}, ws.sent)
         self.assertTrue(conn.closed)
 
-    def test_only_a_real_name_after_a_real_request_starts_a_report(self):
-        for asked in ['can I talk to a person', 'I want to speak with a representative',
-                      'is there a real person', 'can someone call me back', 'I need a human',
-                      'please file a report for me', 'transfer me to an operator']:
-            self.assertTrue(HUMAN_REQUEST.search(asked), asked)
-        for ordinary in ['what shelters are open', 'my house flooded', 'is the road to Tampa closed',
-                         'can you tell me about FEMA aid']:
-            self.assertFalse(HUMAN_REQUEST.search(ordinary), ordinary)
-        self.assertEqual(caller_name('my name is James Okonkwo'), 'James Okonkwo')
-        self.assertEqual(caller_name("it's Priya"), 'Priya')
-        for refusal in ['why do you need my name', 'no thanks', 'I would rather not',
-                        'what shelters are open near me tonight please']:
-            self.assertIsNone(caller_name(refusal), refusal)
-
-    def test_hangup_writes_the_report_from_the_whole_call_when_a_name_was_given(self):
+    def test_arabic_call_without_name_or_report_request_saves_the_whole_call(self):
         made = []
         session = {'transcript': [], 'name': None}
 
@@ -203,9 +189,9 @@ class VoiceTests(unittest.TestCase):
             def __aiter__(self): return self.events()
             async def events(self):
                 yield SimpleNamespace(type='session.updated')
-                yield said('can I talk to a real person please')
-                yield said('Maria Lopez')
-                yield said('my street is still flooded')
+                yield said('المياه تدخل المنزل')
+                yield said('أنا في هيوستن')
+                yield said('أحتاج إلى مكان آمن')
                 await asyncio.sleep(10)
 
         ws, conn = Socket(), Connection()
@@ -214,15 +200,14 @@ class VoiceTests(unittest.TestCase):
             asyncio.run(live_call(ws, gateway, 'https://resource.services.ai.azure.com/api/projects/ReliefRN',
                                   'Assistance-agent', 'auto', session))
         self.assertEqual(made, [], 'nothing is written while the caller is still on the line')
-        self.assertEqual(session['name'], 'Maria Lopez')
+        self.assertIsNone(session['name'])
 
         self.assertEqual(save_callback_report(session, make_report, 'Assistance-agent')['number'], 7)
         messages, name = made[0]
-        self.assertEqual(name, 'Maria Lopez')
-        # The writeup gets the turns after the name too, not just the ones before it.
+        self.assertIsNone(name)
+        # All Arabic turns reach WriteUp without an English request or name trigger.
         self.assertEqual([item['content'] for item in messages],
-                         ['can I talk to a real person please', 'Maria Lopez',
-                          'my street is still flooded'])
+                         ['المياه تدخل المنزل', 'أنا في هيوستن', 'أحتاج إلى مكان آمن'])
 
     def test_demo_hangup_writes_once_without_name_or_transcript(self):
         made = []
@@ -267,6 +252,46 @@ class VoiceTests(unittest.TestCase):
                 self.assertEqual('Incomplete demo call report' in body, bool(fail))
                 self.assertEqual(client.get('/api/reports/' + files[0].name).status_code, 404)
                 self.assertEqual(client.get('/api/session').get_json()['reports'], [])
+
+    def test_arabic_report_reaches_local_writer_with_english_output_instruction(self):
+        arabic = [{'role': 'user', 'content': 'أحتاج إلى مأوى في هيوستن'}]
+        english = 'SUMMARY: The caller needs shelter in Houston. Caller language: Arabic.'
+        class Socket:
+            connected = True
+            def send(self, data): pass
+            def close(self): self.connected = False
+
+        for language, disconnected in [('auto', False), ('ar-SA', False), ('ar-SA', True)]:
+            with self.subTest(language=language, disconnected=disconnected), tempfile.TemporaryDirectory() as directory:
+                gateway = object.__new__(AzureAgents)
+                gateway.test_mode = False
+                async def call(ws, gateway, endpoint, agent, language, session):
+                    session['transcript'] = list(arabic)
+                    if disconnected:
+                        raise ConnectionError('Caller disconnected')
+                app = create_app(gateway, directory)
+                with patch('voice.live_call', side_effect=call), patch.object(gateway, 'ask', return_value=(english, None)) as ask:
+                    with app.test_request_context('/api/voice/stream?language=' + language,
+                                                 headers={'Origin': 'http://localhost'}):
+                        app.view_functions['stream'].__wrapped__(Socket())
+                ask.assert_called_once()
+                instructions = ask.call_args.args[1][0]['content'][0]['text']
+                evidence = json.loads(ask.call_args.args[1][1]['content'][0]['text'])
+                self.assertIn('Write the entire report in English', instructions)
+                self.assertEqual(evidence['conversation'], arabic)
+                self.assertTrue(evidence['report_authorized'])
+                self.assertFalse(evidence['callback_confirmed'])
+                files = list(Path(directory).glob('reliefrn-report-*.md'))
+                self.assertEqual(len(files), 1)
+                self.assertEqual(files[0].read_text(), english)
+
+    def test_voice_translation_instruction_does_not_change_sms_prompt(self):
+        gateway = object.__new__(AzureAgents)
+        with patch.object(gateway, 'ask', return_value=('Report', None)) as ask:
+            gateway.write_report(Chat())
+        instructions = ask.call_args.args[1][0]['content'][0]['text']
+        self.assertTrue(instructions.startswith('The participant confirmed a callback report.'))
+        self.assertNotIn('Translate Arabic', instructions)
 
     def test_serial_socket_completes_short_writes(self):
         class Stingy:

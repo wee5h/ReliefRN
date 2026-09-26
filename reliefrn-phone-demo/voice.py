@@ -7,7 +7,6 @@ import base64
 import json
 import logging
 import os
-import re
 import socket
 import ssl
 import threading
@@ -103,36 +102,6 @@ def session_settings(language="auto"):
     }
 
 
-# A spoken request to reach a person. The application watches for this so report
-# creation is started by the app, not inferred by the agent from a vague "yes".
-HUMAN_REQUEST = re.compile(
-    r"(?:(?:talk|speak|connect|transfer|put\s+me\s+through)\s+(?:me\s+|us\s+)?(?:to|with)\s+"
-    r"(?:a|an|the|some)?\s*(?:real|actual|live|human)?\s*"
-    r"(?:person|human|someone|somebody|agent|representative|rep|operator|"
-    r"advisor|case\s*worker|caseworker|supervisor|manager)"
-    r"|(?:real|actual|live)\s+(?:person|human|people)"
-    r"|human\s+(?:being|support|help|agent)"
-    r"|call\s+me\s+back|calls?\s+back|callback"
-    r"|(?:file|make|create|prepare|submit|start|open)\s+(?:a|an|my|the)?\s*"
-    r"(?:report|claim|case)"
-    r"|have\s+(?:someone|somebody|a\s+person)\s+(?:call|contact|reach)"
-    r"|need\s+(?:to\s+)?(?:a\s+)?(?:person|human|representative))", re.I)
-# Questions, refusals and hedges are answers to something else, not a name.
-NOT_A_NAME = re.compile(r"\?|\b(?:no|nope|not|don't|dont|why|what|who|how|when|where|"
-                        r"never\s*mind|nevermind|cancel|stop|wait|nothing|rather\s+not)\b", re.I)
-
-
-def caller_name(text):
-    """Read a spoken name, rejecting a sentence, a question or a refusal."""
-    value = " ".join((text or "").split())
-    value = re.sub(r"^(?:my\s+name\s+is|the\s+name\s+is|name'?s|this\s+is|it'?s|"
-                   r"i'?m|i\s+am|call\s+me)\s+", "", value, flags=re.I)
-    value = value.strip(" .,!\"'")
-    if not value or len(value) > 60 or len(value.split()) > 5 or NOT_A_NAME.search(value):
-        return None
-    return value
-
-
 def validate_audio(message):
     """Accept bounded audio chunks only, never client-generated agent instructions."""
     if not isinstance(message, dict) or message.get("type") != "audio":
@@ -223,8 +192,6 @@ async def live_call(ws, gateway, project_endpoint, agent, language, session=None
         turn = {"pending": None, "rounds": 0, "hangup": False}
         session = session if session is not None else {}
         transcript = session.setdefault("transcript", [])
-        session.setdefault("name", None)
-        stage = {"value": "idle"}
 
         def emit(payload):
             """Queue a browser-bound frame. Never blocks, so the loop never stalls."""
@@ -254,23 +221,6 @@ async def live_call(ws, gateway, project_endpoint, agent, language, session=None
                 except Exception:
                     turn["hangup"] = True
                     return
-
-        def note_request(text):
-            """Capture an optional name; reports no longer depend on recognizing it.
-
-            Only the name is captured during the call. The report itself is written
-            at hangup, so the writeup gets the whole conversation as evidence.
-            """
-            if stage["value"] == "awaiting_name":
-                name = caller_name(text)
-                if name:
-                    session["name"] = name
-                    stage["value"] = "named"
-                    log.info("Voice caller gave a name after asking for a person")
-                return
-            if stage["value"] == "idle" and HUMAN_REQUEST.search(text):
-                stage["value"] = "awaiting_name"
-                log.info("Voice caller asked for a person; waiting for a name")
 
         async def watchdog():
             """Surface a turn that never finishes instead of showing 'Listening'."""
@@ -307,8 +257,6 @@ async def live_call(ws, gateway, project_endpoint, agent, language, session=None
                     role = "user" if kind.startswith("conversation") else "assistant"
                     text = event.transcript.replace("[OFFER_CALLBACK]", "")
                     transcript.append({"role": role, "content": text})
-                    if role == "user":
-                        note_request(text)
                     emit({"type": "transcript", "role": role, "text": text})
                 elif kind == "input_audio_buffer.speech_started":
                     turn["rounds"] = 0
@@ -425,8 +373,7 @@ def save_callback_report(session, make_report, agent=None, report_error=None):
     """Write the callback report once the call is over.
 
     Runs on the call's own worker thread after the socket closes, so a slow WriteUp
-    run cannot stall the bridge, and the writeup sees the entire conversation rather
-    than only the turns that happened to precede the caller giving their name.
+    run cannot stall the bridge. Every language and request follows this same path.
     """
     if session is None:
         return None
@@ -437,6 +384,7 @@ def save_callback_report(session, make_report, agent=None, report_error=None):
         return None
     session["report_attempted"] = True
     log = logging.getLogger("reliefrn")
+    log.info("Automatic voice report starting on call end: turns=%d; no request or name required", len(transcript))
     try:
         saved = make_report(list(transcript), name)
         session["report"] = saved

@@ -329,6 +329,12 @@ class AzureAgents:
                          "For this demo voice request, application authorization replaces the saved "
                          "requirement for caller confirmation. Generate the report under this demo setting. "
                          "This is not caller consent; do not claim consent or a request for human contact. "
+                         "Write the entire report in English, including headings and narrative, regardless "
+                         "of the transcript language. Translate Arabic and any other language into English "
+                         "while preserving the stated facts, urgency, and uncertainty. Identify the caller's "
+                         "language when evident; do not invent names, locations, numbers, or translations. "
+                         "Do not require an English request or a name. Extract only explicitly supplied "
+                         "contact details from the original-language transcript under the saved privacy rules. "
                          "If the transcript is empty, state that no conversation was captured. "
                          if automatic else "The participant confirmed a callback report. ")
         report, _ = self.ask(WRITEUP_AGENT, [
@@ -495,6 +501,7 @@ def create_app(gateway, report_dir=None):
     chats_lock = threading.Lock()
     reports = ReportStore(report_dir if report_dir is not None else Path.cwd())
     app.extensions.update(reliefrn_chats=chats, reliefrn_reports=reports)
+    LOGGER.info("Voice demo reports: automatic after every call, output language=English, directory=%s", reports.directory)
     def voice_report(messages, caller_name):
         """Demo-only automatic report; never represent it as caller consent."""
         LOGGER.info("Voice callback report starting for caller_name=%s", bool(caller_name))
