@@ -1,6 +1,6 @@
 """Browser microphone -> local WebSocket -> Microsoft Voice Live / saved agent.
 
-No telephony, browser credentials, local recordings, or automatic reports.
+No telephony, browser credentials, or local audio recordings. Demo calls auto-save reports.
 """
 import asyncio
 import base64
@@ -49,25 +49,16 @@ You are an automated agent, not FEMA or a human. For immediate danger, tell the 
 to call 911 now; you cannot contact emergency services. Never delay this for tools.
 Do not collect sensitive identifiers.
 
-HUMAN SUPPORT AND REPORTS IN THIS VOICE INTERFACE
-When the caller asks for a person, a representative, a callback, or a report, your
-very next turn is one short question asking for their full name. Ask for the name
-first. Do not explain what you can and cannot do, do not read out official contacts
-first, and do not ask why they want a person. One sentence, one question.
-
-Once they give a name, confirm in one short sentence that you have noted it for human
-follow-up, and say that forwarding and callbacks are simulated in this demo. Then get
-back to helping with the original need. The application itself writes and saves the
-report when the call ends, so never state a report number and never say a report has
-already been saved, forwarded, or sent to FEMA. You cannot transfer a live call and
-you cannot speak [OFFER_CALLBACK]. If the caller will not give a name, drop it and
-give verified official human-support contact options instead.
-
-Report creation is started and recorded by the application, never inferred by you:
-a request for a person, a spoken yes, silence, or hanging up does not by itself
-authorize a report. Immediate danger takes priority over a name, a report, or any
-contact collection, and a simulated report never replaces real emergency or
-human-support contact guidance.
+DEMO REPORTS AND HUMAN SUPPORT
+This demo automatically prepares and saves a local report after every call ends.
+Do not ask for report confirmation or require a name before a report can be made.
+If useful, ask for a preferred name and callback number; these are optional.
+Never invent missing details. Provide verified human-support contacts when needed.
+Report generation happens after hang-up. Do not claim it has already been saved,
+state a report number, emit [OFFER_CALLBACK], or invoke report or transfer tools.
+Nothing is forwarded and no real callback or transfer is arranged. The demo's
+automatic report setting is not a record of caller consent. Immediate danger
+always takes priority over reports and contact collection.
 
 The available languages are English, Spanish, Mandarin Chinese, Vietnamese, Arabic,
 Korean, Tagalog, Urdu, and French. Continue in the caller's language; clarify if unclear.
@@ -265,7 +256,7 @@ async def live_call(ws, gateway, project_endpoint, agent, language, session=None
                     return
 
         def note_request(text):
-            """Decide here, not in the agent, whether the call earns a report.
+            """Capture an optional name; reports no longer depend on recognizing it.
 
             Only the name is captured during the call. The report itself is written
             at hangup, so the writeup gets the whole conversation as evidence.
@@ -433,17 +424,22 @@ async def live_call(ws, gateway, project_endpoint, agent, language, session=None
 def save_callback_report(session, make_report, agent=None, report_error=None):
     """Write the callback report once the call is over.
 
-    Runs on the call's own worker thread after the socket closes, so a slow WriteUp
+    Runs on the call's own worker thread after audio stops, so a slow WriteUp
     run cannot stall the bridge, and the writeup sees the entire conversation rather
     than only the turns that happened to precede the caller giving their name.
     """
-    session = session or {}
-    name, transcript = session.get("name"), session.get("transcript") or []
-    if not make_report or not name or not transcript:
+    if session is None:
         return None
+    if session.get("report_attempted"):
+        return session.get("report")
+    name, transcript = session.get("name"), session.get("transcript") or []
+    if not make_report:
+        return None
+    session["report_attempted"] = True
     log = logging.getLogger("reliefrn")
     try:
         saved = make_report(list(transcript), name)
+        session["report"] = saved
         log.info("Voice callback report saved on hangup: %s", (saved or {}).get("filename"))
         return saved
     except Exception as error:
@@ -496,9 +492,12 @@ def register_voice(app, gateway, project_endpoint, agent, report_error=None, mak
             except Exception:
                 pass
         finally:
-            # Close first: the report can take seconds, and the caller has hung up.
+            # Audio is stopped. Keep the socket for the result while the browser
+            # downloads; a disconnected browser does not prevent the local save.
+            saved = save_callback_report(session, make_report, agent, report_error)
             try:
-                ws.close()
+                ws.send(json.dumps({"type": "report", "report": saved}))
             except Exception:
                 pass
-            save_callback_report(session, make_report, agent, report_error)
+            finally:
+                ws.close()

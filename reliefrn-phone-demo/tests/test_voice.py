@@ -223,14 +223,50 @@ class VoiceTests(unittest.TestCase):
                          ['can I talk to a real person please', 'Maria Lopez',
                           'my street is still flooded'])
 
-    def test_hangup_writes_nothing_without_a_name_or_a_transcript(self):
+    def test_demo_hangup_writes_once_without_name_or_transcript(self):
         made = []
-        spy = lambda *arguments: made.append(arguments)
-        self.assertIsNone(save_callback_report(
-            {'transcript': [{'role': 'user', 'content': 'what shelters are open'}], 'name': None}, spy))
-        self.assertIsNone(save_callback_report({'transcript': [], 'name': 'Maria Lopez'}, spy))
-        self.assertIsNone(save_callback_report(None, spy))
-        self.assertEqual(made, [], 'no name or no call means no report')
+        def make_report(*args):
+            made.append(args)
+            return {'filename': 'demo.md'}
+        for session in [{'transcript': [{'role': 'user', 'content': 'what shelters are open'}]}, {}]:
+            first = save_callback_report(session, make_report)
+            self.assertEqual(save_callback_report(session, make_report), first)
+        self.assertEqual(len(made), 2)
+        self.assertEqual(made[0][1], None)
+        self.assertEqual(made[1], ([], None))
+        self.assertIsNone(save_callback_report(None, make_report))
+
+    def test_hangup_report_download_ownership_and_generation_fallback(self):
+        class Socket:
+            connected = True
+            def __init__(self): self.sent = []
+            def send(self, data): self.sent.append(json.loads(data))
+            def receive(self, timeout): return '{"type":"end"}'
+            def close(self): self.connected = False
+
+        for fail in [False, True, 'refused']:
+            with self.subTest(fail=fail), tempfile.TemporaryDirectory() as directory:
+                gateway = PreviewAgents()
+                app = create_app(gateway, directory)
+                client = app.test_client()
+                client.get('/api/voice/config')
+                cookie = client.get_cookie('session').value
+                ws = Socket()
+                original = gateway.write_report
+                effect = (lambda *args, **kwargs: 'REPORT_NOT_AUTHORIZED') if fail == 'refused' else RuntimeError('unavailable') if fail else original
+                with patch.object(gateway, 'write_report', side_effect=effect):
+                    with app.test_request_context('/api/voice/stream', headers={
+                            'Origin': 'http://localhost', 'Cookie': 'session=' + cookie}):
+                        app.view_functions['stream'].__wrapped__(ws)
+                event = next(event for event in ws.sent if event['type'] == 'report')
+                report = event['report']
+                self.assertEqual(report['incomplete'], bool(fail))
+                self.assertFalse(ws.connected)
+                with client.get(report['url']) as response:
+                    self.assertEqual(response.status_code, 200)
+                    self.assertIn(b'consent was not recorded', response.data)
+                self.assertEqual(app.test_client().get(report['url']).status_code, 404)
+                self.assertEqual(client.get('/api/session').get_json()['reports'], [])
 
     def test_serial_socket_completes_short_writes(self):
         class Stingy:

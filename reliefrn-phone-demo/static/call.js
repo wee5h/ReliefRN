@@ -26,14 +26,38 @@ function stopAudio(call) {
   call.sources.clear();
   call.nextAudio = 0;
 }
+function reportStatus(call, text) {
+  if (!call.reportElement) {
+    call.reportElement = document.createElement('p');
+    $('call-reports').append(call.reportElement);
+  }
+  call.reportElement.textContent = text;
+}
+function receiveReport(call, report) {
+  call.waitingReport = false;
+  if (!report) {
+    reportStatus(call, 'The report could not be saved. Check the app terminal.');
+    return;
+  }
+  reportStatus(call, report.incomplete ? 'Incomplete demo report saved — summary unavailable. ' : 'Demo report saved. ');
+  const link = document.createElement('a');
+  link.href = report.url; link.download = report.filename;
+  link.textContent = 'Download report';
+  call.reportElement.append(link);
+  // Some browsers block automatic downloads; the visible link remains available.
+  link.click();
+}
 function finish(message = '') {
   const call = current;
   current = null;
   if (call) {
     clearInterval(call.timer);
     clearTimeout(call.timeout);
-    if (call.socket?.readyState === WebSocket.OPEN) call.socket.send(JSON.stringify({type: 'end'}));
-    call.socket?.close();
+    if (call.socket?.readyState === WebSocket.OPEN) {
+      call.waitingReport = true;
+      reportStatus(call, 'Preparing demo report…');
+      call.socket.send(JSON.stringify({type: 'end'}));
+    } else call.socket?.close();
     call.stream?.getTracks().forEach(track => track.stop());
     call.capture?.disconnect();
     call.input?.disconnect();
@@ -45,7 +69,7 @@ function finish(message = '') {
   $('hint').textContent = message ? 'You can try again or switch to Messages.' : 'Take care. We’re here when you need us.';
   $('error').textContent = message;
   $('error').hidden = !message;
-  $('privacy').textContent = 'Microphone off · No report or callback was created.';
+  $('privacy').textContent = 'Microphone off · Reports stay local. No callback arranged.';
   $('mute').setAttribute('aria-pressed', 'false');
 }
 function fail(call, message) {if (current === call) finish(message);}
@@ -94,7 +118,7 @@ function connected(call, preview = false) {
   call.started = Date.now();
   state('active', preview ? 'Preview connected' : 'Connected · Listening');
   $('hint').textContent = preview ? 'Scripted greeting only. Live speech recognition is off.' : 'Speak naturally. You can interrupt at any time.';
-  $('privacy').textContent = preview ? 'Local microphone test · Audio is not sent to Azure.' : 'Microphone on · Voice processed by Microsoft Azure.';
+  $('privacy').textContent = preview ? 'Local microphone test · Demo report saved after hang-up.' : 'Microphone on · Azure voice · Demo report saved after hang-up.';
   call.timer = setInterval(() => {
     const seconds = Math.floor((Date.now() - call.started) / 1000);
     $('timer').textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
@@ -166,9 +190,10 @@ async function start() {
     call.socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/voice/stream?language=${encodeURIComponent($('language').value)}`);
     call.timeout = setTimeout(() => fail(call, 'The voice connection timed out. Please try again.'), 45000);
     call.socket.onmessage = event => {
-      if (current !== call) return;
       try {
         const message = JSON.parse(event.data);
+        if (message.type === 'report') {receiveReport(call, message.report); call.socket.close(); return;}
+        if (current !== call) return;
         if (message.type === 'ready') connected(call);
         else if (message.type === 'audio') {call.awaiting = 0; play(call, message.audio);}
         else if (message.type === 'transcript') caption(message.role, message.text);
@@ -192,7 +217,10 @@ async function start() {
       } catch (error) {fail(call, error.message);}
     };
     call.socket.onerror = () => fail(call, 'Unable to connect to voice. Check the local app and try again.');
-    call.socket.onclose = () => {if (current === call) finish('The voice connection ended. You can call again.');};
+    call.socket.onclose = () => {
+      if (call.waitingReport) reportStatus(call, 'Report download connection closed. Check the local report folder.');
+      if (current === call) finish('The voice connection ended. You can call again.');
+    };
     for (const track of stream.getAudioTracks()) track.onended = () => fail(call, 'Microphone access ended. Please call again.');
   } catch (error) {
     const messages = {NotAllowedError: 'Microphone access was denied. Allow it in your browser’s site settings, then call again.', NotFoundError: 'No microphone was found. Connect one, then call again.', NotReadableError: 'Your microphone is unavailable. Close other apps using it and try again.'};
@@ -234,7 +262,7 @@ clock(); setInterval(clock, 30000);
       option.textContent = `${language.native} · ${language.name}`;
       $('language').append(option);
     }
-    if (config.preview) $('demo-note').textContent = 'Offline preview · Scripted greeting · No live recognition';
+    if (config.preview) $('demo-note').textContent = 'Offline preview · No live recognition · Automatic demo reports';
     $('call').disabled = false;
   } catch (error) {$('error').hidden = false; $('error').textContent = error.message;}
 })();

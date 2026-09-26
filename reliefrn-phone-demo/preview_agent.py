@@ -12,5 +12,7 @@ class PreviewAgents:
             return "No problem. What else would you like help with?"
         return "This is the offline preview. In the live app, ReliefRN uses your saved Assistance-agent to respond. You can ask for a callback to try the report flow."
 
-    def write_report(self, chat):
+    def write_report(self, chat, channel="sms", caller_name=None):
+        if channel == "voice":
+            return "# OFFLINE PREVIEW — Demo call report\n\nNo speech was transcribed in this preview. Automatically saved for the demo; caller consent was not recorded. Nothing was forwarded and no callback was arranged.\n"
         return "# OFFLINE PREVIEW — NOT AN AGENT-GENERATED REPORT\n\nThis file only verifies the local save and numbering flow. Live mode uses the saved WriteUp-agent and its existing instructions.\n\nCallback report consent: confirmed.\n\nNo message was sent to FEMA and no callback was scheduled.\n"
