@@ -4,7 +4,7 @@
 
 It is built on three **Microsoft Foundry agents** that work together: one answers, one checks every risky situation for safety, and one writes up the case for a human caseworker.
 
-> Built for the **Disaster Assistance Navigator** hackathon challenge. ReliefRN is an independent prototype. It is not FEMA or any government agency, it never submits applications, and it never claims to have transferred anyone to a human.
+Built for the **Disaster Assistance Navigator** hackathon challenge. ReliefRN is an independent prototype.
 
 ---
 
@@ -50,7 +50,7 @@ Demo: reports are saved locally; forwarding and callbacks are simulated.
 | Phone call (voice) | **Working as a browser demo.** Simulated call UI with live Microsoft Voice Live audio and nine languages. See [VOICE.md](reliefrn-phone-demo/VOICE.md). Real telephony and voice report consent are not implemented |
 | Safety agent review | **Working** on the website and in the SMS demo |
 | WriteUp-Agent summary with case ID | **Working.** Website: editable summary with an `RRN-…` reference, download and print. SMS demo: numbered report files saved locally |
-| Callback from a FEMA representative | **Simulated.** Nothing is forwarded to FEMA; the apps say so explicitly |
+| Callback from a representative | **Simulated.** Nothing is forwarded; the apps say so explicitly |
 | SMS update when a representative is free | **Proposed** |
 
 ---
@@ -109,30 +109,6 @@ Demo: reports are saved locally; forwarding and callbacks are simulated.
 They run in the Foundry project **ReliefRN** (`disaster-ai-agent.services.ai.azure.com`). Their instructions are kept in [AGENTS.md](AGENTS.md); review notes on them are in [FINDINGS-REVIEW.md](reliefrn-phone-demo/FINDINGS-REVIEW.md).
 
 ---
-
-## Quick start: the website
-
-You need **Python 3.10+** and **Node.js 22.13+**.
-
-```bash
-git clone https://github.com/wee5h/ReliefRN.git
-cd ReliefRN/ReliefRN_website
-```
-
-- **Windows:** double-click `start-demo.cmd`
-- **macOS / Linux:** run `./start-demo.sh`
-
-Sign in with an account that has the **Azure AI User** role on the ReliefRN Foundry project, then open **http://localhost:5173**. Judges use a service principal instead of their own account. That setup is explained in [RUN-LOCALLY.md](ReliefRN_website/RUN-LOCALLY.md).
-
----
-
-## Honest limitations
-
-- This is a **prototype**. Callbacks and forwarding to FEMA are simulated, and a generated reference is not a FEMA case.
-- **Resource listings** are nearest-by-distance and not confirmed open. Every card says to confirm before travelling.
-- The **seven newer translations** were written for this prototype and should be reviewed by native speakers.
-- **Voice input** depends on the browser. It works in Chrome and Edge, not Firefox or Brave.
-- **A real phone line and real SMS** are designed but not connected yet.
 
 ## Team
 

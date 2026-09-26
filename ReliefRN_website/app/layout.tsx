@@ -5,8 +5,8 @@ export const metadata: Metadata = {
   title: "ReliefRN | Disaster Assistance Navigator",
   description: "Find nearby disaster support, official information, and a clear next step. Accessible help, in your language.",
   icons: {
-    icon: "/favicon.svg",
-    shortcut: "/favicon.svg",
+    icon: "/favicon.png",
+    shortcut: "/favicon.png",
   },
 };
 

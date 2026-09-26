@@ -103,7 +103,7 @@ if (-not $h) {
 Step '4/4  ReliefRN website'
 Write-Host 'Opening http://localhost:5173 when it is ready. Press Ctrl+C here to stop everything.'
 if (-not $NoBrowser) { Start-Job -ScriptBlock {
-  for ($i = 0; $i -lt 120; $i++) {
+  for ($i = 0; $i -lt 300; $i++) {
     try {
       Invoke-WebRequest 'http://localhost:5173/api/config' -UseBasicParsing -TimeoutSec 3 | Out-Null
       Start-Process 'http://localhost:5173'; return
@@ -112,7 +112,19 @@ if (-not $NoBrowser) { Start-Job -ScriptBlock {
 } | Out-Null }
 Push-Location $root
 try {
-  & node scripts/run-framework.mjs dev
+  # The local Cloudflare runtime sometimes dies while starting, with
+  # "Error: internal error; reference = ..." from getWorkerEntryExportTypes
+  # (a transient error inside the Cloudflare Vite plugin). The next start
+  # almost always works, so retry and keep the agent bridge running.
+  for ($attempt = 1; $attempt -le 6; $attempt++) {
+    $started = Get-Date
+    & node scripts/run-framework.mjs dev
+    if (((Get-Date) - $started).TotalSeconds -gt 90) { break }  # it ran, then was stopped
+    if ($attempt -lt 6) {
+      Write-Host "`nThe website stopped while starting (a known, temporary local-runtime error). Retrying ($($attempt + 1)/6) ..." -ForegroundColor Yellow
+      Start-Sleep 2
+    }
+  }
 } finally {
   Pop-Location
   Get-Job | Remove-Job -Force -ErrorAction SilentlyContinue

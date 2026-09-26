@@ -82,4 +82,16 @@ fi
 
 step "4/4  ReliefRN website"
 echo "Open http://localhost:5173 once it says Local. Press Ctrl+C to stop everything."
-node scripts/run-framework.mjs dev
+# The local Cloudflare runtime sometimes dies while starting, with
+# "Error: internal error; reference = ..." (a transient error inside the
+# Cloudflare Vite plugin). The next start almost always works, so retry.
+attempt=1
+while :; do
+  started=$(date +%s)
+  node scripts/run-framework.mjs dev || true
+  [ $(( $(date +%s) - started )) -gt 90 ] && break  # it ran, then was stopped
+  [ "$attempt" -ge 6 ] && break
+  attempt=$((attempt + 1))
+  printf '\n\033[33mThe website stopped while starting (a known, temporary local-runtime error). Retrying (%s/6) ...\033[0m\n' "$attempt"
+  sleep 2
+done
