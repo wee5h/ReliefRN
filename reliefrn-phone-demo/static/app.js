@@ -81,8 +81,23 @@ function render(next) {
   state = next;
   $('messages').replaceChildren();
   const lastUserIndex = next.messages.map(message => message.role).lastIndexOf('user');
-  next.messages.forEach((message, index) => renderMessage(message, false, index === lastUserIndex));
-  for (const report of next.reports) renderReport(report);
+  const reportsAt = new Map();
+  for (const report of next.reports) {
+    // Older running servers do not supply an anchor yet. Locate their saved
+    // confirmation so refreshing the UI also keeps existing reports in place.
+    let index = report.message_index;
+    if (!Number.isInteger(index)) {
+      const confirmation = `Your callback report #${String(report.number).padStart(4, '0')} has been created and saved.`;
+      index = next.messages.findIndex(message => message.role === 'assistant' && message.content.startsWith(confirmation));
+    }
+    if (index < 0 || index >= next.messages.length) index = next.messages.length - 1;
+    if (!reportsAt.has(index)) reportsAt.set(index, []);
+    reportsAt.get(index).push(report);
+  }
+  next.messages.forEach((message, index) => {
+    renderMessage(message, false, index === lastUserIndex);
+    for (const report of reportsAt.get(index) || []) renderReport(report);
+  });
   $('date-label').textContent = 'Today ' + new Date(next.started_at).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
   $('actions').replaceChildren();
   if (next.callback_pending) {
@@ -102,7 +117,7 @@ function setBusy(value, action = '') {
   $('send').disabled = value || !$('message').value.trim();
   $('new-chat').disabled = value;
   $('typing').hidden = !value;
-  $('typing-label').textContent = action === 'restart' ? 'Restarting…' : /confirm_callback|retry_report/.test(action) ? 'Preparing your report' : 'ReliefRN is replying';
+  $('typing-label').textContent = action === 'restart' ? 'Restarting…' : action === 'retry_report' ? 'Preparing your report' : 'ReliefRN is replying';
   $('actions').querySelectorAll('button').forEach(b => {b.disabled = value;});
   scrollToEnd();
 }
@@ -194,7 +209,7 @@ if (document.modelContext?.registerTool) {
   Promise.resolve(document.modelContext.registerTool({
     name: 'send_reliefrn_message',
     title: 'Message ReliefRN',
-    description: 'Send a message in the current ReliefRN conversation. A confirmation after an offered callback report can generate and save that report locally.',
+    description: 'Send a message in the current ReliefRN conversation. Confirming a report offer asks for an optional name and callback number in chat; replying with details or skip generates and saves the report locally.',
     inputSchema: {type: 'object', properties: {message: {type: 'string', minLength: 1, maxLength: 4000}}, required: ['message'], additionalProperties: false},
     annotations: {readOnlyHint: false, untrustedContentHint: true},
     async execute(input) {

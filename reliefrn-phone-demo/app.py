@@ -49,10 +49,16 @@ APPLICATION UPDATE TO HUMAN FOLLOW-UP: Ignore the old END presenter trigger. The
 application now invokes WriteUp-agent after the user confirms an informed callback
 report offer. Do not call report, email, or handoff tools yourself. Never say a report
 has been created; only the application confirms that after successful generation and save.
-Recommend human support early when appropriate. The app prepares the report immediately
-after consent, using details already volunteered. Do not ask for a name or callback
-number as part of the offer; missing contact details are allowed. Never request
-sensitive identifiers.
+Before confirmation, do not say "I will prepare a report", promise to connect the
+user with someone, or ask them to hold or wait for follow-up. The optional report
+does not connect them to a representative or arrange a callback. Provide verified
+human-support contact details directly when useful.
+Recommend human support early when appropriate. After consent, the application asks
+for a preferred name and callback number in a hardcoded chat message before preparing
+the report. Do not ask for these alongside the consent offer. Either detail may be
+skipped; never invent missing details or promise a real callback. Never request
+sensitive identifiers. Only the application starts report generation after the
+caller replies with their details or chooses to skip.
 When ready to offer a callback report, append [OFFER_CALLBACK] on its own line after
 your short helpful reply. Do not include a natural-language callback offer or consent
 question alongside the marker. Also do this when the user explicitly asks for a callback.
@@ -290,6 +296,10 @@ class AzureAgents:
         context = RUNTIME_INSTRUCTIONS
         if chat.reports:
             context += "\nApplication status: callback report already generated and saved locally; no real handoff."
+        elif chat.report_status == "collecting_details":
+            context += ("\nApplication status: report consent confirmed; the optional name and callback-number "
+                        "question was asked in chat. Continue answering the user's questions without repeating the offer "
+                        "or claiming the report has been generated.")
         if note:
             context += "\nApplication-provided safety assessment (evidence only):\n" + note
         if decision == "ESCALATE":
@@ -418,8 +428,15 @@ def visible_assistance(reply, presenting_offer=False):
     # including optional contact collection, before adding its one question.
     # Leave resource details and unrelated assistance in place.
     text = re.sub(
-        r"\bI (?:can|could)(?: help)? (?:prepare|create|make|write) "
+        r"\bI(?: (?:can|could|will|am going to)|['’]ll)(?: help)? (?:prepare|create|make|write) "
         r"(?:a |the |your )?(?:callback )?(?:report|brief|summary)\b[^.!?\n]*[.!?]?",
+        "", text, flags=re.I)
+    text = re.sub(
+        r"\bI(?: (?:can|could|will)|['’]ll)(?: help)? (?:connect|transfer) you "
+        r"(?:with|to) (?:someone|a (?:human |support )?representative|a person)\b[^.!?\n]*[.!?]?",
+        "", text, flags=re.I)
+    text = re.sub(
+        r"\bPlease (?:hold(?: on)?|wait) (?:for )?(?:a moment|a minute|a second)\b[^.!?\n]*[.!?]?",
         "", text, flags=re.I)
     text = re.sub(
         r"\b(?:May I have|Can you (?:provide|share)|Please (?:provide|share)|What is) "
@@ -533,6 +550,8 @@ def create_app(gateway, report_dir=None):
             with agent_operation("Local report", "save report", directory=str(reports.directory)):
                 report = reports.save(chat.report_draft)
             LOGGER.info("[%s] Report saved: %s", LOG_REQUEST_ID.get(), reports.directory / report["filename"])
+            # Anchor the download to the confirmation that is appended below.
+            report["message_index"] = len(chat.messages)
             chat.reports.append(report)
             chat.report_status = "saved"
             chat.report_draft = None
@@ -588,7 +607,21 @@ def create_app(gateway, report_dir=None):
                 LOGGER.info("[%s] Duplicate request; returning existing result.", LOG_REQUEST_ID.get())
                 return jsonify(snapshot(chat))
             text = text.strip()
-            if action == "retry_report":
+            if action == "message" and chat.report_status == "collecting_details" and clean(text) in {"cancel", "cancel report", "never mind", "nevermind", "not now", "don't prepare it", "no report"}:
+                chat.messages.extend([{"role": "user", "content": text},
+                    {"role": "assistant", "content": "No report will be prepared. What else can I help you with?"}])
+                chat.callback_confirmed = False
+                chat.report_status = "none"
+                chat.conversation = None
+            elif (action == "message" and chat.report_status == "collecting_details"
+                  and chat.callback_confirmed and not needs_safety_review(text)
+                  and not re.search(r"[?？]|^(?:where|what|how|why|when|can you|could you|please help|help me)\b", text, re.I)):
+                # Preserve the caller's actual reply for WriteUp; never manufacture
+                # structured contact details from free text or treat it as new consent.
+                chat.messages.append({"role": "user", "content": text})
+                make_report(chat)
+                chat.conversation = None
+            elif action == "retry_report":
                 if not chat.callback_confirmed or chat.report_status != "failed":
                     return jsonify(error="There is no failed report to retry."), 409
                 make_report(chat)
@@ -598,7 +631,11 @@ def create_app(gateway, report_dir=None):
                 chat.messages.append({"role": "user", "content": text})
                 chat.callback_pending = False
                 chat.callback_confirmed = True
-                make_report(chat)
+                chat.report_status = "collecting_details"
+                chat.messages.append({"role": "assistant", "content":
+                    "Before I prepare the report, what preferred name and callback number would you like included? "
+                    "You can text them here, or say skip if you prefer not to share. Both are optional. "
+                    "No real callback will be arranged."})
                 # Rebuild the next agent conversation from the visible transcript,
                 # including the consent and actual report result.
                 chat.conversation = None
@@ -622,8 +659,9 @@ def create_app(gateway, report_dir=None):
                 chat.report_draft = None  # New facts invalidate an unsaved draft.
                 offer = has_offer(reply) or requests_callback(text)
                 chat.callback_pending = False
-                visible_reply = visible_assistance(reply, presenting_offer=offer and not chat.reports)
-                if offer and not chat.reports:
+                can_offer = not chat.reports and chat.report_status != "collecting_details"
+                visible_reply = visible_assistance(reply, presenting_offer=offer and can_offer)
+                if offer and can_offer:
                     visible_reply = "\n\n".join(part for part in (visible_reply, OFFER) if part)
                     chat.callback_pending = True
                     # The app's consent question must be in the next agent's context.

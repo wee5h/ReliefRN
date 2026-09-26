@@ -50,6 +50,10 @@ class ReliefRNTests(unittest.TestCase):
         return (client or self.client).post('/api/message', json={
             'text': text, 'action': action, 'request_id': request_id or str(uuid.uuid4())})
 
+    def complete_report(self):
+        self.send('Yes please')
+        return self.send('My name is Jane and my number is 202-555-0130')
+
     def offer(self):
         result = self.send('I want a callback').get_json()
         self.assertTrue(result['callback_pending'])
@@ -58,16 +62,31 @@ class ReliefRNTests(unittest.TestCase):
 
     def test_confirm_generates_saved_report_with_verbatim_agent_body(self):
         self.offer()
-        result = self.send('Yes please').get_json()
+        result = self.complete_report().get_json()
         self.assertEqual(result['report_status'], 'saved')
         self.assertEqual(self.gateway.report_calls, 1)
         report = result['reports'][0]
         self.assertEqual(report['filename'], 'reliefrn-report-0001.md')
         self.assertEqual((Path(self.temp.name) / report['filename']).read_text(), '# Agent-created report\n\nOriginal format is preserved.\n')
-        self.assertEqual(self.gateway.last_report_transcript[-1]['content'], 'Yes please')
+        self.assertIn('Jane', self.gateway.last_report_transcript[-1]['content'])
+        self.assertIn('202-555-0130', self.gateway.last_report_transcript[-1]['content'])
         self.assertIn('created and saved', result['messages'][-1]['content'])
         with self.client.get(report['url']) as download:
             self.assertEqual(download.status_code, 200)
+
+    def test_report_stays_anchored_after_later_messages_and_reload(self):
+        self.offer()
+        saved = self.complete_report().get_json()
+        report = saved['reports'][0]
+        anchor = report['message_index']
+        self.assertEqual(anchor, len(saved['messages']) - 1)
+        self.assertIn('created and saved', saved['messages'][anchor]['content'])
+        later = self.send('Where can I find a shelter?').get_json()
+        self.assertGreater(len(later['messages']) - 1, anchor)
+        reloaded = self.client.get('/api/session').get_json()
+        for snapshot in (later, reloaded):
+            self.assertEqual(snapshot['reports'], [report])
+            self.assertEqual(snapshot['messages'][anchor], saved['messages'][anchor])
 
     def test_button_confirm_and_duplicate_request_only_write_once(self):
         self.offer()
@@ -75,11 +94,56 @@ class ReliefRNTests(unittest.TestCase):
         first = self.send('Yes, prepare report', 'confirm_callback', request_id).get_json()
         second = self.send('Yes, prepare report', 'confirm_callback', request_id).get_json()
         self.assertEqual(first, second)
+        self.assertEqual(first['report_status'], 'collecting_details')
+        self.assertEqual(self.gateway.report_calls, 0)
+        details_id = str(uuid.uuid4())
+        first = self.send('Jane, 202-555-0130', request_id=details_id).get_json()
+        second = self.send('Jane, 202-555-0130', request_id=details_id).get_json()
+        self.assertEqual(first, second)
         self.assertEqual(self.gateway.report_calls, 1)
 
     def test_generic_yes_without_offer_never_generates(self):
         self.send('yes')
         self.assertEqual(self.gateway.report_calls, 0)
+
+    def test_contact_details_are_requested_in_chat_and_can_be_skipped(self):
+        self.offer()
+        confirmed = self.send('yes').get_json()
+        self.assertEqual(confirmed['report_status'], 'collecting_details')
+        self.assertIn('preferred name and callback number', confirmed['messages'][-1]['content'])
+        self.assertIn('text them here', confirmed['messages'][-1]['content'])
+        self.assertEqual(self.gateway.report_calls, 0)
+        self.assertEqual(self.client.get('/api/session').get_json()['report_status'], 'collecting_details')
+        result = self.send('skip').get_json()
+        self.assertEqual(result['report_status'], 'saved')
+        self.assertEqual(self.gateway.last_report_transcript[-1]['content'], 'skip')
+
+    def test_cancel_report_in_chat_without_generating(self):
+        self.offer()
+        self.send('yes')
+        result = self.send('Cancel report').get_json()
+        self.assertEqual(result['report_status'], 'none')
+        self.assertEqual(self.send('Retry', 'retry_report').status_code, 409)
+        self.assertEqual(self.gateway.report_calls, 0)
+
+    def test_emergency_during_contact_reply_does_not_generate_report(self):
+        self.offer()
+        self.send('yes')
+        self.send('Jane, 202-555-0130, I am trapped')
+        self.assertEqual(self.gateway.report_calls, 0)
+        self.assertEqual(self.gateway.reply_calls, 2)
+
+    def test_conversation_can_continue_before_and_after_report(self):
+        self.offer()
+        self.send('yes')
+        result = self.send('Where is the nearest shelter?').get_json()
+        self.assertEqual(result['report_status'], 'collecting_details')
+        self.assertEqual(self.gateway.report_calls, 0)
+        saved = self.send('Jane, 202-555-0130').get_json()
+        later = self.send('What else should I bring?').get_json()
+        self.assertEqual(later['reports'], saved['reports'])
+        self.assertEqual(later['report_status'], 'saved')
+        self.assertEqual(self.gateway.report_calls, 1)
 
     def test_refusal_and_qualified_consent_never_generate(self):
         for text in ['No thanks', 'yes but not now', 'yes if I can review it first', 'not sure', 'yes what happens next?', 'Do not call me', 'Wait, please prepare the report later']:
@@ -105,7 +169,7 @@ class ReliefRNTests(unittest.TestCase):
     def test_report_failure_retry_and_no_false_success(self):
         self.offer()
         self.gateway.fail_write = True
-        result = self.send('yes').get_json()
+        result = self.complete_report().get_json()
         self.assertEqual(result['report_status'], 'failed')
         self.assertEqual(result['reports'], [])
         self.assertNotIn('has been created', result['messages'][-1]['content'])
@@ -117,7 +181,7 @@ class ReliefRNTests(unittest.TestCase):
     def test_disk_failure_retry_reuses_report_draft(self):
         self.offer()
         with patch.object(self.app.extensions['reliefrn_reports'], 'save', side_effect=OSError('disk')):
-            self.assertEqual(self.send('yes').get_json()['report_status'], 'failed')
+            self.assertEqual(self.complete_report().get_json()['report_status'], 'failed')
         self.assertEqual(self.send('Retry report', 'retry_report').get_json()['report_status'], 'saved')
         self.assertEqual(self.gateway.report_calls, 1)
 
@@ -157,10 +221,26 @@ class ReliefRNTests(unittest.TestCase):
                 self.assertTrue(result['callback_pending'])
                 self.assertEqual(self.gateway.report_calls, 0)
 
+    def test_premature_handoff_promise_becomes_one_consent_offer(self):
+        generated = (
+            'I can help connect you with someone who can provide more assistance. '
+            'I will prepare a report for a human representative to follow up with you. '
+            'Please hold for a moment.')
+        for prefix in ['', 'Call 911 now. ', 'Call the shelter at 555-0100. ']:
+            with self.subTest(prefix=prefix):
+                self.client.post('/api/session', json={'new': True})
+                with patch.object(self.gateway, 'respond', return_value=prefix + generated):
+                    result = self.send('I want to talk to a person').get_json()
+                expected = prefix.strip() + '\n\n' + OFFER if prefix else OFFER
+                self.assertEqual(result['messages'][-1]['content'], expected)
+                self.assertTrue(result['callback_pending'])
+                self.assertEqual(self.gateway.report_calls, 0)
+                self.assertEqual(result['reports'], [])
+
     def test_new_information_invalidates_failed_disk_draft(self):
         self.offer()
         with patch.object(self.app.extensions['reliefrn_reports'], 'save', side_effect=OSError('disk')):
-            self.send('yes')
+            self.complete_report()
         self.send('I have moved to a different county')
         self.send('Retry report', 'retry_report')
         self.assertEqual(self.gateway.report_calls, 2)
@@ -185,10 +265,10 @@ class ReliefRNTests(unittest.TestCase):
 
     def test_numbering_survives_new_conversation_and_server_restart(self):
         self.offer()
-        self.send('yes')
+        self.complete_report()
         self.client.post('/api/session', json={'new': True})
         self.offer()
-        self.assertEqual(self.send('yes').get_json()['reports'][0]['number'], 2)
+        self.assertEqual(self.complete_report().get_json()['reports'][0]['number'], 2)
         store = ReportStore(self.temp.name)
         self.assertEqual(store.save('third report')['number'], 3)
         self.assertEqual(len(list(Path(self.temp.name).glob('*.md'))), 3)
@@ -208,7 +288,7 @@ class ReliefRNTests(unittest.TestCase):
 
     def test_report_download_requires_owning_conversation(self):
         self.offer()
-        url = self.send('yes').get_json()['reports'][0]['url']
+        url = self.complete_report().get_json()['reports'][0]['url']
         other = self.app.test_client()
         other.get('/api/session')
         self.assertEqual(other.get(url).status_code, 404)
