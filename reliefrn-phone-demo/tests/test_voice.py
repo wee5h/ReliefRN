@@ -6,6 +6,7 @@ import ssl
 import tempfile
 import time
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch, AsyncMock
 
@@ -236,7 +237,7 @@ class VoiceTests(unittest.TestCase):
         self.assertEqual(made[1], ([], None))
         self.assertIsNone(save_callback_report(None, make_report))
 
-    def test_hangup_report_download_ownership_and_generation_fallback(self):
+    def test_hangup_saves_locally_without_browser_report_messages(self):
         class Socket:
             connected = True
             def __init__(self): self.sent = []
@@ -250,22 +251,21 @@ class VoiceTests(unittest.TestCase):
                 app = create_app(gateway, directory)
                 client = app.test_client()
                 client.get('/api/voice/config')
-                cookie = client.get_cookie('session').value
                 ws = Socket()
                 original = gateway.write_report
                 effect = (lambda *args, **kwargs: 'REPORT_NOT_AUTHORIZED') if fail == 'refused' else RuntimeError('unavailable') if fail else original
                 with patch.object(gateway, 'write_report', side_effect=effect):
                     with app.test_request_context('/api/voice/stream', headers={
-                            'Origin': 'http://localhost', 'Cookie': 'session=' + cookie}):
+                            'Origin': 'http://localhost'}):
                         app.view_functions['stream'].__wrapped__(ws)
-                event = next(event for event in ws.sent if event['type'] == 'report')
-                report = event['report']
-                self.assertEqual(report['incomplete'], bool(fail))
+                self.assertFalse(any(event['type'] == 'report' for event in ws.sent))
                 self.assertFalse(ws.connected)
-                with client.get(report['url']) as response:
-                    self.assertEqual(response.status_code, 200)
-                    self.assertIn(b'consent was not recorded', response.data)
-                self.assertEqual(app.test_client().get(report['url']).status_code, 404)
+                files = list(Path(directory).glob('reliefrn-report-*.md'))
+                self.assertEqual(len(files), 1)
+                body = files[0].read_text()
+                self.assertIn('consent was not recorded', body)
+                self.assertEqual('Incomplete demo call report' in body, bool(fail))
+                self.assertEqual(client.get('/api/reports/' + files[0].name).status_code, 404)
                 self.assertEqual(client.get('/api/session').get_json()['reports'], [])
 
     def test_serial_socket_completes_short_writes(self):

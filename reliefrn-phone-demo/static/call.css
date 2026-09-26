@@ -23,4 +23,4 @@ h1{font-size:36px;font-weight:400;letter-spacing:-1px}.subtitle{font-size:14px;c
 .language-control{padding-bottom:22px}.call-action{margin-top:28px}.privacy{color:#b0bfb7}
 @media(max-height:800px){.avatar{width:76px;height:76px;margin-bottom:12px}.avatar span{font-size:38px}.call-type{margin:10px 0 16px}.control-icon{width:58px;height:58px}.call-action{margin-top:18px}.language-control{padding-bottom:16px}}
 @media(max-width:480px){.statusbar{padding-left:26px;padding-right:22px;padding-top:env(safe-area-inset-top);height:calc(48px + env(safe-area-inset-top))}.island{top:calc(9px + env(safe-area-inset-top))}}
-.call-reports{font-size:13px;color:#263e34;text-align:center;line-height:1.5}.call-reports p{padding:12px;background:#f2f6f3;border-radius:12px;margin:12px 0}.call-reports a{color:#176044;font-weight:600}.phone .privacy{max-width:100%}@media(max-width:480px){.call-reports{padding:0 14px}.demo-note{display:block;color:#c3d4ca;padding:0 14px}}
+@media(max-width:480px){.demo-note{display:block;color:#c3d4ca;padding:0 14px}}

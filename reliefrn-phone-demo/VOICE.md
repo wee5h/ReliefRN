@@ -2,7 +2,7 @@
 
 The **Call** link in the SMS screen opens `/call` on the same Python server. It rings briefly, requests microphone permission, and connects to Microsoft Voice Live using the existing Python Azure Identity credential and saved Assistance-agent. No Azure CLI, phone number, carrier, or separate frontend build is involved.
 
-Controls include microphone mute, speaker output on/off, captions, a call timer, hang-up, and a language selector. Speaker toggles browser playback; it does not switch a physical handset's audio route. Hang-up immediately releases microphone tracks and stops playback. The socket stays open only to return the report download, then closes. Recognition starts only after permission and the Voice Live session are ready.
+Controls include microphone mute, speaker output on/off, captions, a call timer, hang-up, and a language selector. Speaker toggles browser playback; it does not switch a physical handset's audio route. Hang-up immediately releases microphone tracks, stops playback, and closes the socket. The server then writes the report locally. Recognition starts only after permission and the Voice Live session are ready.
 
 ## Languages
 
@@ -30,7 +30,7 @@ The browser streams mono PCM16 at 24 kHz through a same-origin WebSocket. The Py
 
 Voice uses the saved agent's safety instructions/tools. It does **not** run the SMS application's separate shadow safety check. MCP approval requests use the SMS backend's explicit `RELIEFRN_READ_ONLY_TOOLS` allowlist; other requests are denied. Voice cannot transfer a live call or place a real callback. For this demo, every call automatically generates a local report on hang-up, even without a recognized name, a request for a person, or a transcript. The presenter has enabled this demo behavior; it is not recorded as caller consent. The UI discloses it before calling. WriteUp-agent summarizes the available transcript; missing details must not be invented. If generation fails, the app saves a clearly labeled incomplete report without raw conversation or contact details. Disk failures are surfaced rather than falsely claiming success.
 
-When the report is saved, the browser attempts a download and keeps a **Download report** link available if automatic downloads are blocked. Downloads are restricted to the owning browser session. Closing the tab or losing the connection does not prevent a local save, but the browser cannot receive a download over a closed connection. Each call is processed once. No real forwarding or callback occurs. SMS retains its separate consent flow.
+Reports are written by the running Python process to its configured report directory (the working directory by default, or `--report-dir`). The terminal logs the saved file path. There is no browser download, report link, or additional report UI. Closing the tab or losing the connection still triggers the local save. Each call is processed once. No real forwarding or callback occurs. SMS retains its existing consent and report UI.
 
 The existing `--preview` mode provides a clearly labeled, browser-spoken scripted greeting and microphone permission testing. It does not transcribe speech, answer questions, or contact Azure. Live failures never silently switch to preview. Use localhost or HTTPS for microphone access.
 

@@ -352,7 +352,6 @@ class Chat:
     callback_confirmed: bool = False
     report_status: str = "none"
     reports: list = field(default_factory=list)
-    voice_reports: list = field(default_factory=list)
     report_draft: str | None = None
     completed_requests: dict = field(default_factory=dict)
     touched: float = field(default_factory=time.monotonic)
@@ -499,7 +498,6 @@ def create_app(gateway, report_dir=None):
     def voice_report(messages, caller_name):
         """Demo-only automatic report; never represent it as caller consent."""
         LOGGER.info("Voice callback report starting for caller_name=%s", bool(caller_name))
-        chat = current_chat(make=True)
         fallback = False
         try:
             draft = gateway.write_report(SimpleNamespace(messages=messages, notes=[]),
@@ -518,7 +516,6 @@ def create_app(gateway, report_dir=None):
                      "Nothing was forwarded and no callback was arranged.\n")
         saved = reports.save(draft)
         saved["incomplete"] = fallback
-        chat.voice_reports.append(saved)
         LOGGER.info("Voice report saved: %s", reports.directory / saved["filename"])
         return saved
 
@@ -528,8 +525,6 @@ def create_app(gateway, report_dir=None):
 
     @app.before_request
     def same_origin():
-        if request.path == "/api/voice/config":
-            current_chat(make=True)  # Set the ownership cookie before the WebSocket opens.
         if request.method == "POST":
             origin = request.headers.get("Origin")
             if origin and origin.rstrip("/") != request.host_url.rstrip("/"):
@@ -704,7 +699,7 @@ def create_app(gateway, report_dir=None):
     @app.get("/api/reports/<filename>")
     def download_report(filename):
         chat = current_chat()
-        if chat is None or not any(report["filename"] == filename for report in chat.reports + chat.voice_reports):
+        if chat is None or not any(report["filename"] == filename for report in chat.reports):
             return jsonify(error="Report not found in this conversation."), 404
         return send_file(reports.directory / filename, as_attachment=True, download_name=filename, mimetype="text/markdown; charset=utf-8")
 

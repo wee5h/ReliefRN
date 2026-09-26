@@ -424,7 +424,7 @@ async def live_call(ws, gateway, project_endpoint, agent, language, session=None
 def save_callback_report(session, make_report, agent=None, report_error=None):
     """Write the callback report once the call is over.
 
-    Runs on the call's own worker thread after audio stops, so a slow WriteUp
+    Runs on the call's own worker thread after the socket closes, so a slow WriteUp
     run cannot stall the bridge, and the writeup sees the entire conversation rather
     than only the turns that happened to precede the caller giving their name.
     """
@@ -492,12 +492,10 @@ def register_voice(app, gateway, project_endpoint, agent, report_error=None, mak
             except Exception:
                 pass
         finally:
-            # Audio is stopped. Keep the socket for the result while the browser
-            # downloads; a disconnected browser does not prevent the local save.
-            saved = save_callback_report(session, make_report, agent, report_error)
+            # The call ends immediately. The terminal process then writes the
+            # report locally, including when the browser has already disconnected.
             try:
-                ws.send(json.dumps({"type": "report", "report": saved}))
+                ws.close()
             except Exception:
                 pass
-            finally:
-                ws.close()
+            save_callback_report(session, make_report, agent, report_error)
